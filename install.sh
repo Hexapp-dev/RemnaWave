@@ -16,20 +16,21 @@ clear_screen() {
 }
 
 print_banner() {
-  local MAGENTA CYAN GRAY BOLD RESET
+  local MAGENTA CYAN GRAY SEP BOLD RESET
   if [ -t 1 ]; then
-    MAGENTA='\033[38;5;201m'
-    CYAN='\033[38;5;51m'
-    GRAY='\033[38;5;246m'
+    MAGENTA='\033[38;5;141m'  # muted orchid
+    CYAN='\033[38;5;81m'     # soft teal
+    GRAY='\033[38;5;245m'    # neutral gray text
+    SEP='\033[38;5;244m'     # subtle separator
     BOLD='\033[1m'
     RESET='\033[0m'
   else
-    MAGENTA=''; CYAN=''; GRAY=''; BOLD=''; RESET=''
+    MAGENTA=''; CYAN=''; GRAY=''; SEP=''; BOLD=''; RESET=''
   fi
 
   clear_screen
   echo ""
-  echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${RESET}"
+  echo -e "${SEP}════════════════════════════════════════════════════════════════════════════${RESET}"
   # HEX (left, magenta) + APP (right, cyan)
   echo -e "${MAGENTA}${BOLD}██╗  ██╗███████╗██╗  ██╗  ${CYAN}  █████╗ ██████╗ ██████╗  ${RESET}"
   echo -e "${MAGENTA}${BOLD}██║  ██║██╔════╝╚██╗██╔╝  ${CYAN} ██╔══██╗██╔══██╗██╔══██╗ ${RESET}"
@@ -37,7 +38,7 @@ print_banner() {
   echo -e "${MAGENTA}${BOLD}██╔══██║██╔══╝   ██╔██╗   ${CYAN} ██╔══██║██╔═══╝ ██╔═══╝  ${RESET}"
   echo -e "${MAGENTA}${BOLD}██║  ██║███████╗██╔╝ ██╗  ${CYAN} ██║  ██║██║     ██║      ${RESET}"
   echo -e "${MAGENTA}${BOLD}╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝  ${CYAN} ╚═╝  ╚═╝╚═╝     ╚═╝      ${RESET}"
-  echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${RESET}"
+  echo -e "${SEP}════════════════════════════════════════════════════════════════════════════${RESET}"
   echo -e "${GRAY} Website: https://hexapp.dev${RESET}"
   echo -e "${GRAY} Installer: Remnawave Panel + Subscription + Nginx (SSL)${RESET}\n"
 }
