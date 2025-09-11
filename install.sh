@@ -125,11 +125,15 @@ EOF
 print_header "Generating secrets and configuring .env"
 require_cmd openssl || abort "openssl is required"
 
-# Secrets
-inplace_sed "s/^JWT_AUTH_SECRET=.*/JWT_AUTH_SECRET=$(openssl rand -hex 64)/" "$ENV_FILE"
-inplace_sed "s/^JWT_API_TOKENS_SECRET=.*/JWT_API_TOKENS_SECRET=$(openssl rand -hex 64)/" "$ENV_FILE"
-inplace_sed "s/^METRICS_PASS=.*/METRICS_PASS=$(openssl rand -hex 64)/" "$ENV_FILE"
-inplace_sed "s/^WEBHOOK_SECRET_HEADER=.*/WEBHOOK_SECRET_HEADER=$(openssl rand -hex 64)/" "$ENV_FILE"
+# Secrets (generate ONLY on first install to avoid breaking existing installs)
+if [ "$ENV_NEW" -eq 1 ]; then
+  inplace_sed "s/^JWT_AUTH_SECRET=.*/JWT_AUTH_SECRET=$(openssl rand -hex 64)/" "$ENV_FILE"
+  inplace_sed "s/^JWT_API_TOKENS_SECRET=.*/JWT_API_TOKENS_SECRET=$(openssl rand -hex 64)/" "$ENV_FILE"
+  inplace_sed "s/^METRICS_PASS=.*/METRICS_PASS=$(openssl rand -hex 64)/" "$ENV_FILE"
+  inplace_sed "s/^WEBHOOK_SECRET_HEADER=.*/WEBHOOK_SECRET_HEADER=$(openssl rand -hex 64)/" "$ENV_FILE"
+else
+  echo "Preserving existing JWT/metrics/webhook secrets in .env"
+fi
 
 # Postgres password and DATABASE_URL alignment
 if [ "$ENV_NEW" -eq 1 ]; then
@@ -170,7 +174,7 @@ fi
 print_header "Starting Remnawave Panel"
 (cd "$BASE_DIR" && docker compose up -d --force-recreate)
 
-# Align Postgres password inside the DB with .env (idempotent)
+# Align Postgres password inside the DB with .env (idempotent, preserves data)
 print_header "Aligning Postgres password with .env"
 POSTGRES_PASSWORD_VALUE=$(grep '^POSTGRES_PASSWORD=' "$ENV_FILE" | cut -d'=' -f2-)
 if docker ps --format '{{.Names}}' | grep -q '^remnawave-db$'; then
