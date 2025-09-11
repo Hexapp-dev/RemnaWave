@@ -2,33 +2,45 @@
 
 set -euo pipefail
 
-# ---------- UI / Styling ----------------------------------------------------
-# Basic color support (works even if tput is unavailable)
-if command -v tput >/dev/null 2>&1 && [ -t 1 ]; then
-  BOLD="$(tput bold)"; DIM="$(tput dim)"; RESET="$(tput sgr0)"
-  RED="$(tput setaf 1)"; GREEN="$(tput setaf 2)"; YELLOW="$(tput setaf 3)"
-  BLUE="$(tput setaf 4)"; MAGENTA="$(tput setaf 5)"; CYAN="$(tput setaf 6)"
-else
-  BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
-  RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'
-  BLUE='\033[34m'; MAGENTA='\033[35m'; CYAN='\033[36m'
-fi
-
-print_banner() {
-  echo ""
-  echo -e "${BOLD}${CYAN}┌───────────────────────────────────────────────────────────────┐${RESET}"
-  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}██╗  ██╗███████╗██╗  ██╗${RESET}                 ${BOLD}${CYAN}│${RESET}"
-  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}██║  ██║██╔════╝██║  ██║${RESET}                 ${BOLD}${CYAN}│${RESET}"
-  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}███████║█████╗  ███████║${RESET}     ${BOLD}${GREEN}HEX APP${RESET}     ${BOLD}${CYAN}│${RESET}"
-  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}██╔══██║██╔══╝  ██╔══██║${RESET}                 ${BOLD}${CYAN}│${RESET}"
-  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}██║  ██║███████╗██║  ██║${RESET}                 ${BOLD}${CYAN}│${RESET}"
-  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝${RESET}                 ${BOLD}${CYAN}│${RESET}"
-  echo -e "${BOLD}${CYAN}│${RESET}     ${DIM}Website:${RESET} ${BOLD}${YELLOW}https://hexapp.dev${RESET}                         ${BOLD}${CYAN}│${RESET}"
-  echo -e "${BOLD}${CYAN}└───────────────────────────────────────────────────────────────┘${RESET}"
-}
-
 # Remnawave full installer: Panel + Subscription Page + Nginx (SSL)
 # Single prompt: panel domain (e.g., panel.example.com)
+
+clear_screen() {
+  if command -v tput >/dev/null 2>&1; then
+    tput reset || printf '\033c'
+  elif command -v clear >/dev/null 2>&1; then
+    clear
+  else
+    printf '\033[2J\033[H'
+  fi
+}
+
+print_banner() {
+  local MAGENTA CYAN GRAY BOLD RESET
+  if [ -t 1 ]; then
+    MAGENTA='\033[38;5;201m'
+    CYAN='\033[38;5;51m'
+    GRAY='\033[38;5;246m'
+    BOLD='\033[1m'
+    RESET='\033[0m'
+  else
+    MAGENTA=''; CYAN=''; GRAY=''; BOLD=''; RESET=''
+  fi
+
+  clear_screen
+  echo ""
+  echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${RESET}"
+  # HEX (left, magenta) + APP (right, cyan)
+  echo -e "${MAGENTA}${BOLD}██╗  ██╗███████╗██╗  ██╗  ${CYAN}  █████╗ ██████╗ ██████╗  ${RESET}"
+  echo -e "${MAGENTA}${BOLD}██║  ██║██╔════╝╚██╗██╔╝  ${CYAN} ██╔══██╗██╔══██╗██╔══██╗ ${RESET}"
+  echo -e "${MAGENTA}${BOLD}███████║█████╗   ╚███╔╝   ${CYAN} ███████║██████╔╝██████╔╝ ${RESET}"
+  echo -e "${MAGENTA}${BOLD}██╔══██║██╔══╝   ██╔██╗   ${CYAN} ██╔══██║██╔═══╝ ██╔═══╝  ${RESET}"
+  echo -e "${MAGENTA}${BOLD}██║  ██║███████╗██╔╝ ██╗  ${CYAN} ██║  ██║██║     ██║      ${RESET}"
+  echo -e "${MAGENTA}${BOLD}╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝  ${CYAN} ╚═╝  ╚═╝╚═╝     ╚═╝      ${RESET}"
+  echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${RESET}"
+  echo -e "${GRAY} Website: https://hexapp.dev${RESET}"
+  echo -e "${GRAY} Installer: Remnawave Panel + Subscription + Nginx (SSL)${RESET}\n"
+}
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || return 1
@@ -63,7 +75,7 @@ abort() {
 }
 
 print_banner
-print_header "HEX APP – Remnawave Automated Installer"
+print_header "Remnawave Automated Installer"
 
 read -rp "Enter panel domain (e.g., panel.example.com): " PANEL_DOMAIN
 PANEL_DOMAIN=${PANEL_DOMAIN// /}
@@ -423,10 +435,9 @@ print_header "Starting Nginx"
 (cd "$NGINX_DIR" && docker compose up -d --force-recreate)
 
 echo ""
-echo -e "${BOLD}${GREEN}✔ All set! Installation completed successfully.${RESET}"
-echo -e "${BOLD}Panel:${RESET}        https://$PANEL_DOMAIN/"
-echo -e "${BOLD}Subscription:${RESET} https://$PANEL_DOMAIN/sub/"
-echo -e "${DIM}Note: Ensure DNS for $PANEL_DOMAIN points to this server and port 8443 was free during certificate issuance.${RESET}"
-echo -e "${DIM}Powered by ${BOLD}HEX APP${RESET}${DIM} – ${BOLD}https://hexapp.dev${RESET}"
+echo "All set! Installation completed successfully."
+echo "Panel:        https://$PANEL_DOMAIN/"
+echo "Subscription: https://$PANEL_DOMAIN/sub/"
+echo "Note: Ensure DNS for $PANEL_DOMAIN points to this server and port 8443 was free during certificate issuance."
 
 
