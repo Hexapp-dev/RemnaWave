@@ -9,82 +9,6 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || return 1
 }
 
-wait_for_apt() {
-  # Wait for dpkg/apt locks to be free (handles unattended-upgrades)
-  if ! require_cmd apt-get; then
-    return 0
-  fi
-  local locks=(/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock)
-  local max_attempts=120
-  local attempt=1
-  while :; do
-    local busy=false
-    for lk in "${locks[@]}"; do
-      if sudo fuser "$lk" >/dev/null 2>&1 || sudo lsof "$lk" >/dev/null 2>&1; then
-        busy=true
-        break
-      fi
-    done
-    # Also wait if unattended-upgrades is running
-    if pgrep -fa 'unattended-upgr|apt.systemd.daily|apt-get|dpkg' >/dev/null 2>&1; then
-      busy=true
-    fi
-    if [ "$busy" = false ]; then
-      sudo dpkg --configure -a >/dev/null 2>&1 || true
-      break
-    fi
-    if [ $attempt -ge $max_attempts ]; then
-      echo "apt/dpkg still busy after $((max_attempts*5))s. Please retry later." >&2
-      exit 1
-    fi
-    echo "apt/dpkg is busy (unattended-upgrades). Waiting... ($attempt/$max_attempts)"
-    attempt=$((attempt+1))
-    sleep 5
-  done
-}
-
-apt_disable_automatic() {
-  # Temporarily stop automatic apt units to avoid lock contention
-  if ! require_cmd systemctl; then
-    return 0
-  fi
-  sudo systemctl stop unattended-upgrades.service 2>/dev/null || true
-  sudo systemctl stop apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
-  sudo systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
-}
-
-apt_enable_automatic() {
-  if ! require_cmd systemctl; then
-    return 0
-  fi
-  sudo systemctl start apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
-  sudo systemctl start unattended-upgrades.service 2>/dev/null || true
-}
-
-apt_install() {
-  # Usage: apt_install pkg1 pkg2 ... (waits for locks and retries)
-  if ! require_cmd apt-get; then
-    return 0
-  fi
-  apt_disable_automatic
-  wait_for_apt
-  local max_attempts=8
-  local attempt=1
-  export DEBIAN_FRONTEND=noninteractive
-  until sudo apt-get update -y && sudo apt-get install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$@"; do
-    if [ $attempt -ge $max_attempts ]; then
-      echo "Failed to install packages via apt-get after $max_attempts attempts: $*" >&2
-      apt_enable_automatic
-      exit 1
-    fi
-    echo "apt-get failed. Waiting for locks and retrying... ($attempt/$max_attempts)"
-    attempt=$((attempt+1))
-    sleep 5
-    wait_for_apt
-  done
-  apt_enable_automatic
-}
-
 ensure_dir() {
   local d="$1"
   if [ ! -d "$d" ]; then
@@ -128,7 +52,8 @@ ENV_FILE=$BASE_DIR/.env
 
 print_header "Installing prerequisites (curl, ca-certificates)"
 if require_cmd apt-get; then
-  apt_install curl ca-certificates
+  sudo apt-get update -y
+  sudo apt-get install -y curl ca-certificates
 elif require_cmd dnf; then
   sudo dnf install -y curl ca-certificates
 elif require_cmd yum; then
@@ -151,14 +76,14 @@ fi
 print_header "Installing docker compose plugin (if needed)"
 if ! docker compose version >/dev/null 2>&1; then
   if require_cmd apt-get; then
-    apt_install docker-compose-plugin || true
+    sudo apt-get install -y docker-compose-plugin || true
   fi
 fi
 docker compose version >/dev/null 2>&1 || abort "Docker Compose plugin not available."
 
 print_header "Installing acme.sh dependencies (cron, socat)"
 if require_cmd apt-get; then
-  apt_install cron socat
+  sudo apt-get install -y cron socat
 elif require_cmd dnf; then
   sudo dnf install -y cronie socat
 elif require_cmd yum; then
@@ -257,7 +182,7 @@ acme.sh --issue --standalone -d "$PANEL_DOMAIN" \
   --alpn --tlsport 8443
 
 print_header "Writing Nginx configuration"
-cat > "$NGINX_DIR/nginx.conf" <<EOF
+cat > "$NGINX_DIR/nginx.conf" <<'EOF'
 upstream remnawave {
     server remnawave:3000;
 }
@@ -267,7 +192,7 @@ upstream remnawave_subscription {
 }
 
 server {
-    server_name $PANEL_DOMAIN;
+    server_name REPLACE_WITH_YOUR_DOMAIN;
 
     listen 443 ssl reuseport;
     listen [::]:443 ssl reuseport;
@@ -347,6 +272,9 @@ server {
     ssl_reject_handshake on;
 }
 EOF
+
+# Inject domain into nginx.conf
+inplace_sed "s|REPLACE_WITH_YOUR_DOMAIN|$PANEL_DOMAIN|" "$NGINX_DIR/nginx.conf"
 
 print_header "Writing Nginx docker-compose.yml"
 cat > "$NGINX_DIR/docker-compose.yml" <<EOF
