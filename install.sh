@@ -21,6 +21,7 @@ NON_INTERACTIVE="${NON_INTERACTIVE:-}"
 FRONT_END_DOMAIN="${FRONT_END_DOMAIN:-}"
 SUB_PUBLIC_DOMAIN="${SUB_PUBLIC_DOMAIN:-}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
+FRONTEND_UPSTREAM_PORT="${FRONTEND_UPSTREAM_PORT:-${FRONTEND_PORT:-}}"
 
 if [ -z "${FRONT_END_DOMAIN}" ]; then
     if [ -t 0 ]; then
@@ -116,6 +117,8 @@ else
     grep -q '^POSTGRES_PASSWORD=' .env && sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$POSTGRES_PASSWORD|" .env || echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> .env
     grep -q '^METRICS_PASSWORD=' .env && sed -i "s|^METRICS_PASSWORD=.*|METRICS_PASSWORD=$METRICS_PASSWORD|" .env || echo "METRICS_PASSWORD=$METRICS_PASSWORD" >> .env
     grep -q '^WEBHOOK_SECRET=' .env && sed -i "s|^WEBHOOK_SECRET=.*|WEBHOOK_SECRET=$WEBHOOK_SECRET|" .env || echo "WEBHOOK_SECRET=$WEBHOOK_SECRET" >> .env
+    # Optional CORS for frontend domain
+    grep -q '^CORS_ORIGINS=' .env || echo "CORS_ORIGINS=https://$FRONT_END_DOMAIN" >> .env
     grep -q '^POSTGRES_USER=' .env || echo "POSTGRES_USER=postgres" >> .env
     grep -q '^POSTGRES_DB=' .env || echo "POSTGRES_DB=postgres" >> .env
 fi
@@ -175,6 +178,32 @@ NGINX_CONF="/etc/nginx/sites-available/remnawave.conf"
 # Disable default site to avoid nginx welcome page
 rm -f /etc/nginx/sites-enabled/default || true
 
+# Build root block depending on frontend availability
+ROOT_BLOCK=""
+if [ -n "$FRONTEND_UPSTREAM_PORT" ]; then
+    ROOT_BLOCK=$(cat << 'EOF'
+    location / {
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+        proxy_pass http://127.0.0.1:__FRONTEND_PORT__;
+    }
+EOF
+)
+    ROOT_BLOCK="${ROOT_BLOCK/__FRONTEND_PORT__/$FRONTEND_UPSTREAM_PORT}"
+else
+    ROOT_BLOCK=$(cat << 'EOF'
+    location = / {
+        return 200 'RemnaWave backend is running. Frontend not deployed yet.';
+        add_header Content-Type text/plain;
+    }
+EOF
+)
+fi
+
 # Write site config; expand FRONT_END_DOMAIN, but escape Nginx variables
 cat > "$NGINX_CONF" <<EOL
 server {
@@ -183,12 +212,7 @@ server {
     server_name $FRONT_END_DOMAIN;
 
     client_max_body_size 16m;
-
-    # Temporary root response until frontend is deployed
-    location = / {
-        return 200 'RemnaWave backend is running. Frontend not deployed yet.';
-        add_header Content-Type text/plain;
-    }
+${ROOT_BLOCK}
 
     location /api/sub {
         proxy_http_version 1.1;
@@ -209,7 +233,7 @@ nginx -t
 systemctl restart nginx
 
 echo ">>> Obtaining SSL certificate with Certbot..."
-certbot --nginx -d "$FRONT_END_DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL" || true
+certbot --nginx --redirect -d "$FRONT_END_DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL" || true
 
 echo -e "\n=== Installation complete! ==="
 echo "Panel should be available at: https://$FRONT_END_DOMAIN"
