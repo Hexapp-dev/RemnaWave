@@ -82,8 +82,13 @@ print_header "Remnawave Automated Installer"
 read -rp "Enter panel domain (e.g., panel.example.com): " PANEL_DOMAIN
 PANEL_DOMAIN=${PANEL_DOMAIN// /}
 
-[[ -z "$PANEL_DOMAIN" ]] && abort "Domain cannot be empty."
-[[ "$PANEL_DOMAIN" =~ ^https?:// ]] && abort "Do not include http/https in the domain."
+read -rp "Enter subscription domain (e.g., sub.example.com): " SUB_DOMAIN
+SUB_DOMAIN=${SUB_DOMAIN// /}
+
+[[ -z "$PANEL_DOMAIN" ]] && abort "Panel domain cannot be empty."
+[[ -z "$SUB_DOMAIN" ]] && abort "Subscription domain cannot be empty."
+[[ "$PANEL_DOMAIN" =~ ^https?:// ]] && abort "Do not include http/https in the panel domain."
+[[ "$SUB_DOMAIN" =~ ^https?:// ]] && abort "Do not include http/https in the subscription domain."
 
 BASE_DIR=/opt/remnawave
 NGINX_DIR=$BASE_DIR/nginx
@@ -200,8 +205,8 @@ else
   echo "FRONT_END_DOMAIN=$PANEL_DOMAIN" >> "$ENV_FILE"
 fi
 
-# For single-domain setup, expose subscription under /sub on the same domain
-SUB_PUBLIC_DOMAIN_VALUE="$PANEL_DOMAIN/sub"
+# Expose subscription on a separate domain (no scheme)
+SUB_PUBLIC_DOMAIN_VALUE="$SUB_DOMAIN"
 if grep -q '^SUB_PUBLIC_DOMAIN=' "$ENV_FILE"; then
   inplace_sed "s|^SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN_VALUE|" "$ENV_FILE"
 else
@@ -240,7 +245,7 @@ if docker ps --format '{{.Names}}' | grep -q '^remnawave-db$'; then
   docker restart remnawave >/dev/null 2>&1 || true
 fi
 
-print_header "Installing acme.sh and issuing SSL cert for $PANEL_DOMAIN"
+print_header "Installing acme.sh and issuing SSL certs for $PANEL_DOMAIN and $SUB_DOMAIN"
 if [ ! -d "$HOME/.acme.sh" ]; then
   curl https://get.acme.sh | sh -s email=admin@$PANEL_DOMAIN
 fi
@@ -262,7 +267,7 @@ ensure_dir "$NGINX_DIR"
 
 # Tolerate any errors in the cert block and always continue
 set +e
-# Always fetch a fresh cert: purge old state and force issue
+# Always fetch a fresh cert: purge old state and force issue (panel)
 acme.sh --revoke -d "$PANEL_DOMAIN" >/dev/null 2>&1 || true
 acme.sh --remove -d "$PANEL_DOMAIN" >/dev/null 2>&1 || true
 rm -rf "$HOME/.acme.sh/$PANEL_DOMAIN" >/dev/null 2>&1 || true
@@ -270,16 +275,29 @@ rm -f "$NGINX_DIR/privkey.key" "$NGINX_DIR/fullchain.pem" >/dev/null 2>&1 || tru
 
 acme.sh --issue --standalone -d "$PANEL_DOMAIN" --alpn --tlsport 8443 --force || true
 
-# Always install cert/key to target paths
+# Always install cert/key to target paths (panel)
 acme.sh --install-cert -d "$PANEL_DOMAIN" \
   --key-file "$NGINX_DIR/privkey.key" \
   --fullchain-file "$NGINX_DIR/fullchain.pem" \
+  --reloadcmd "cd $NGINX_DIR && docker compose restart remnawave-nginx || true" || true
+
+# Issue and install cert for subscription domain
+acme.sh --revoke -d "$SUB_DOMAIN" >/dev/null 2>&1 || true
+acme.sh --remove -d "$SUB_DOMAIN" >/dev/null 2>&1 || true
+rm -rf "$HOME/.acme.sh/$SUB_DOMAIN" >/dev/null 2>&1 || true
+rm -f "$NGINX_DIR/subdomain_privkey.key" "$NGINX_DIR/subdomain_fullchain.pem" >/dev/null 2>&1 || true
+
+acme.sh --issue --standalone -d "$SUB_DOMAIN" --alpn --tlsport 8443 --force || true
+
+acme.sh --install-cert -d "$SUB_DOMAIN" \
+  --key-file "$NGINX_DIR/subdomain_privkey.key" \
+  --fullchain-file "$NGINX_DIR/subdomain_fullchain.pem" \
   --reloadcmd "cd $NGINX_DIR && docker compose restart remnawave-nginx || true" || true
 set -e
 
 print_header "SSL step finished, proceeding with Nginx and Subscription"
 
-# Validate cert files; if invalid/missing, try copying from acme.sh store or create a temporary self-signed cert
+# Validate cert files; if invalid/missing, try copying from acme.sh store or create a temporary self-signed cert (panel)
 if [ ! -s "$NGINX_DIR/fullchain.pem" ] || ! grep -q "BEGIN CERTIFICATE" "$NGINX_DIR/fullchain.pem" 2>/dev/null; then
   echo "fullchain.pem is missing/invalid. Attempting recovery..."
   SRC_CHAIN="$HOME/.acme.sh/$PANEL_DOMAIN/fullchain.cer"
@@ -298,6 +316,25 @@ if [ ! -s "$NGINX_DIR/fullchain.pem" ] || ! grep -q "BEGIN CERTIFICATE" "$NGINX_
   fi
 fi
 
+# Validate subscription certs as well
+if [ ! -s "$NGINX_DIR/subdomain_fullchain.pem" ] || ! grep -q "BEGIN CERTIFICATE" "$NGINX_DIR/subdomain_fullchain.pem" 2>/dev/null; then
+  echo "subscription fullchain.pem is missing/invalid. Attempting recovery..."
+  SUB_SRC_CHAIN="$HOME/.acme.sh/$SUB_DOMAIN/fullchain.cer"
+  SUB_SRC_KEY="$HOME/.acme.sh/$SUB_DOMAIN/$SUB_DOMAIN.key"
+  if [ -s "$SUB_SRC_CHAIN" ] && grep -q "BEGIN CERTIFICATE" "$SUB_SRC_CHAIN" 2>/dev/null && [ -s "$SUB_SRC_KEY" ]; then
+    cp -f "$SUB_SRC_CHAIN" "$NGINX_DIR/subdomain_fullchain.pem"
+    cp -f "$SUB_SRC_KEY" "$NGINX_DIR/subdomain_privkey.key"
+    echo "Copied subscription certs from acme.sh store."
+  else
+    echo "Subscription certs not available. Generating temporary self-signed certificate for $SUB_DOMAIN."
+    require_cmd openssl || abort "openssl is required to generate a temporary certificate"
+    openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
+      -keyout "$NGINX_DIR/subdomain_privkey.key" \
+      -out "$NGINX_DIR/subdomain_fullchain.pem" \
+      -subj "/CN=$SUB_DOMAIN" >/dev/null 2>&1
+  fi
+fi
+
 print_header "Writing Nginx configuration"
 cat > "$NGINX_DIR/nginx.conf" <<'EOF'
 upstream remnawave {
@@ -308,14 +345,14 @@ upstream remnawave_subscription {
     server remnawave-subscription:3010;
 }
 
+# Panel on panel domain
 server {
-    server_name REPLACE_WITH_YOUR_DOMAIN;
+    server_name REPLACE_WITH_PANEL_DOMAIN;
 
     listen 443 ssl reuseport;
     listen [::]:443 ssl reuseport;
     http2 on;
 
-    # Panel
     location / {
         proxy_http_version 1.1;
         proxy_pass http://remnawave;
@@ -327,21 +364,6 @@ server {
         proxy_set_header X-Forwarded-Port $server_port;
     }
 
-    # Subscription page under /sub
-    location /sub/ {
-        proxy_http_version 1.1;
-        # Preserve /sub prefix for the upstream (no trailing slash)
-        proxy_pass http://remnawave_subscription;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Port $server_port;
-
-    }
-
-    
     # SSL Configuration (Mozilla Intermediate Guidelines)
     ssl_protocols          TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305;
@@ -358,7 +380,71 @@ server {
     resolver               1.1.1.1 1.0.0.1 8.8.8.8 8.8.4.4 208.67.222.222 208.67.220.220 valid=60s;
     resolver_timeout       2s;
 
-    # Gzip Compression
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_buffers 16 8k;
+    gzip_http_version 1.1;
+    gzip_min_length 256;
+    gzip_types
+        application/atom+xml
+        application/geo+json
+        application/javascript
+        application/x-javascript
+        application/json
+        application/ld+json
+        application/manifest+json
+        application/rdf+xml
+        application/rss+xml
+        application/xhtml+xml
+        application/xml
+        font/eot
+        font/otf
+        font/ttf
+        image/svg+xml
+        text/css
+        text/javascript
+        text/plain
+        text/xml;
+}
+
+# Subscription on sub domain
+server {
+    server_name REPLACE_WITH_SUB_DOMAIN;
+
+    listen 443 ssl reuseport;
+    listen [::]:443 ssl reuseport;
+    http2 on;
+
+    location / {
+        proxy_http_version 1.1;
+        proxy_pass http://remnawave_subscription;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    ssl_protocols          TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305;
+
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:MozSSL:10m;
+    ssl_session_tickets    off;
+    ssl_certificate "/etc/nginx/ssl/subdomain_fullchain.pem";
+    ssl_certificate_key "/etc/nginx/ssl/subdomain_privkey.key";
+    ssl_trusted_certificate "/etc/nginx/ssl/subdomain_fullchain.pem";
+
+    ssl_stapling           on;
+    ssl_stapling_verify    on;
+    resolver               1.1.1.1 1.0.0.1 8.8.8.8 8.8.4.4 208.67.222.222 208.67.220.220 valid=60s;
+    resolver_timeout       2s;
+
     gzip on;
     gzip_vary on;
     gzip_proxied any;
@@ -397,8 +483,9 @@ server {
 }
 EOF
 
-# Inject domain into nginx.conf
-inplace_sed "s|REPLACE_WITH_YOUR_DOMAIN|$PANEL_DOMAIN|" "$NGINX_DIR/nginx.conf"
+# Inject domains into nginx.conf
+inplace_sed "s|REPLACE_WITH_PANEL_DOMAIN|$PANEL_DOMAIN|" "$NGINX_DIR/nginx.conf"
+inplace_sed "s|REPLACE_WITH_SUB_DOMAIN|$SUB_DOMAIN|" "$NGINX_DIR/nginx.conf"
 
 print_header "Writing Nginx docker-compose.yml"
 cat > "$NGINX_DIR/docker-compose.yml" <<EOF
