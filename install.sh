@@ -168,7 +168,7 @@ if ! docker network inspect remnawave-network >/dev/null 2>&1; then
 fi
 
 print_header "Starting Remnawave Panel"
-(cd "$BASE_DIR" && docker compose up -d)
+(cd "$BASE_DIR" && docker compose up -d --force-recreate)
 
 # Align Postgres password inside the DB with .env (idempotent)
 print_header "Aligning Postgres password with .env"
@@ -368,10 +368,10 @@ networks:
 EOF
 
 print_header "Starting Subscription Page"
-(cd "$SUB_DIR" && docker compose up -d)
+(cd "$SUB_DIR" && docker compose up -d --force-recreate)
 
 print_header "Starting Nginx"
-(cd "$NGINX_DIR" && docker compose up -d)
+(cd "$NGINX_DIR" && docker compose up -d --force-recreate)
 
 echo ""
 echo "All set! Installation completed successfully."
