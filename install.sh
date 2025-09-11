@@ -189,6 +189,12 @@ acme.sh --issue --standalone -d "$PANEL_DOMAIN" $FORCE_FLAG \
   --fullchain-file "$NGINX_DIR/fullchain.pem" \
   --alpn --tlsport 8443
 
+# Ensure cert and key are installed to target paths even if issuance was skipped
+acme.sh --install-cert -d "$PANEL_DOMAIN" \
+  --key-file "$NGINX_DIR/privkey.key" \
+  --fullchain-file "$NGINX_DIR/fullchain.pem" \
+  --reloadcmd "cd $NGINX_DIR && docker compose restart remnawave-nginx || true"
+
 print_header "Writing Nginx configuration"
 cat > "$NGINX_DIR/nginx.conf" <<'EOF'
 upstream remnawave {
