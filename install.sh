@@ -155,6 +155,13 @@ else
   echo "SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN_VALUE" >> "$ENV_FILE"
 fi
 
+# Ensure DATABASE_URL includes schema=public
+if grep -q '^DATABASE_URL=' "$ENV_FILE"; then
+  if ! grep -q '^DATABASE_URL=.*schema=public' "$ENV_FILE"; then
+    inplace_sed "s|^DATABASE_URL=\"\(postgresql://[^\"]*\)\"$|DATABASE_URL=\"\1?schema=public\"|" "$ENV_FILE" || true
+  fi
+fi
+
 print_header "Creating external docker network if missing"
 if ! docker network inspect remnawave-network >/dev/null 2>&1; then
   docker network create remnawave-network >/dev/null
@@ -162,6 +169,23 @@ fi
 
 print_header "Starting Remnawave Panel"
 (cd "$BASE_DIR" && docker compose up -d)
+
+# Align Postgres password inside the DB with .env (idempotent)
+print_header "Aligning Postgres password with .env"
+POSTGRES_PASSWORD_VALUE=$(grep '^POSTGRES_PASSWORD=' "$ENV_FILE" | cut -d'=' -f2-)
+if docker ps --format '{{.Names}}' | grep -q '^remnawave-db$'; then
+  # Wait until DB is healthy/ready
+  for i in $(seq 1 60); do
+    if docker exec -u postgres remnawave-db pg_isready -U postgres -d postgres -h 127.0.0.1 >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  # Attempt to set the password to the value from .env
+  docker exec -u postgres remnawave-db bash -lc "psql -d postgres -c \"ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD_VALUE';\"" >/dev/null 2>&1 || true
+  # Restart backend to pick up successful DB auth
+  docker restart remnawave >/dev/null 2>&1 || true
+fi
 
 print_header "Installing acme.sh and issuing SSL cert for $PANEL_DOMAIN"
 if [ ! -d "$HOME/.acme.sh" ]; then
