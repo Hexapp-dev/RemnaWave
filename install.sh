@@ -174,20 +174,35 @@ fi
 # Ensure target files exist directory-wise
 ensure_dir "$NGINX_DIR"
 
-# If cert directory exists, skip issuance (avoid 'Skipping. Next renewal time...' noise)
-if [ -d "$HOME/.acme.sh/$PANEL_DOMAIN" ]; then
-  echo "Existing cert for $PANEL_DOMAIN found. Skipping issuance and installing to Nginx paths."
+# Detect acme.sh cert location (RSA or ECC)
+CERT_DIR_RSA="$HOME/.acme.sh/$PANEL_DOMAIN"
+CERT_DIR_ECC="$HOME/.acme.sh/${PANEL_DOMAIN}_ecc"
+ECC_FLAG=""
+if [ -d "$CERT_DIR_ECC" ]; then
+  CERT_DIR="$CERT_DIR_ECC"
+  ECC_FLAG="--ecc"
+elif [ -d "$CERT_DIR_RSA" ]; then
+  CERT_DIR="$CERT_DIR_RSA"
 else
-  # Use Let's Encrypt as CA and issue a new cert
+  CERT_DIR=""
+fi
+
+# If cert directory exists, skip issuance (avoid 'Skipping. Next renewal time...' noise)
+if [ -n "$CERT_DIR" ]; then
+  echo "Existing cert for $PANEL_DOMAIN found at $CERT_DIR. Skipping issuance and installing to Nginx paths."
+else
+  # Use Let's Encrypt as CA and issue a new cert (RSA by default)
   acme.sh --set-default-ca --server letsencrypt
   acme.sh --issue --standalone -d "$PANEL_DOMAIN" \
-    --key-file "$NGINX_DIR/privkey.key" \
-    --fullchain-file "$NGINX_DIR/fullchain.pem" \
     --alpn --tlsport 8443
+  # Re-detect (acme.sh may default to ECC on some setups)
+  if [ -d "$CERT_DIR_ECC" ]; then
+    ECC_FLAG="--ecc"
+  fi
 fi
 
 # Ensure cert and key are installed to target paths even if issuance was skipped
-acme.sh --install-cert -d "$PANEL_DOMAIN" \
+acme.sh --install-cert -d "$PANEL_DOMAIN" $ECC_FLAG \
   --key-file "$NGINX_DIR/privkey.key" \
   --fullchain-file "$NGINX_DIR/fullchain.pem" \
   --reloadcmd "cd $NGINX_DIR && docker compose restart remnawave-nginx || true"
