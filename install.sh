@@ -2,43 +2,33 @@
 
 set -euo pipefail
 
-# Remnawave full installer: Panel + Subscription Page + Nginx (SSL)
-# Single prompt: panel domain (e.g., panel.example.com)
-
-# ========== HEX Brand Styling ==========
-# ANSI colors (fallback-safe)
-if test -t 1; then
-  BOLD='\033[1m'
-  DIM='\033[2m'
-  RED='\033[31m'
-  GREEN='\033[32m'
-  YELLOW='\033[33m'
-  BLUE='\033[34m'
-  MAGENTA='\033[35m'
-  CYAN='\033[36m'
-  RESET='\033[0m'
+# ---------- UI / Styling ----------------------------------------------------
+# Basic color support (works even if tput is unavailable)
+if command -v tput >/dev/null 2>&1 && [ -t 1 ]; then
+  BOLD="$(tput bold)"; DIM="$(tput dim)"; RESET="$(tput sgr0)"
+  RED="$(tput setaf 1)"; GREEN="$(tput setaf 2)"; YELLOW="$(tput setaf 3)"
+  BLUE="$(tput setaf 4)"; MAGENTA="$(tput setaf 5)"; CYAN="$(tput setaf 6)"
 else
-  BOLD=''
-  DIM=''
-  RED=''
-  GREEN=''
-  YELLOW=''
-  BLUE=''
-  MAGENTA=''
-  CYAN=''
-  RESET=''
+  BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+  RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'
+  BLUE='\033[34m'; MAGENTA='\033[35m'; CYAN='\033[36m'
 fi
 
-print_banner_hex() {
+print_banner() {
   echo ""
-  echo -e "${MAGENTA}${BOLD}██╗  ██╗███████╗██╗  ██╗${CYAN}    ███████╗██╗  ██╗${RESET}"
-  echo -e "${MAGENTA}${BOLD}██║  ██║██╔════╝██║  ██║${CYAN}    ██╔════╝██║  ██║${RESET}"
-  echo -e "${MAGENTA}${BOLD}███████║█████╗  ███████║${CYAN}    ███████╗███████║${RESET}"
-  echo -e "${MAGENTA}${BOLD}██╔══██║██╔══╝  ██╔══██║${CYAN}    ╚════██║██╔══██║${RESET}"
-  echo -e "${MAGENTA}${BOLD}██║  ██║███████╗██║  ██║${CYAN}    ███████║██║  ██║${RESET}"
-  echo -e "${MAGENTA}${BOLD}╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝${CYAN}    ╚══════╝╚═╝  ╚═╝${RESET}"
-  echo -e "${DIM}HEX | Remnawave automated installer${RESET}"
+  echo -e "${BOLD}${CYAN}┌───────────────────────────────────────────────────────────────┐${RESET}"
+  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}██╗  ██╗███████╗██╗  ██╗${RESET}                 ${BOLD}${CYAN}│${RESET}"
+  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}██║  ██║██╔════╝██║  ██║${RESET}                 ${BOLD}${CYAN}│${RESET}"
+  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}███████║█████╗  ███████║${RESET}     ${BOLD}${GREEN}HEX APP${RESET}     ${BOLD}${CYAN}│${RESET}"
+  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}██╔══██║██╔══╝  ██╔══██║${RESET}                 ${BOLD}${CYAN}│${RESET}"
+  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}██║  ██║███████╗██║  ██║${RESET}                 ${BOLD}${CYAN}│${RESET}"
+  echo -e "${BOLD}${CYAN}│${RESET}          ${BOLD}${MAGENTA}╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝${RESET}                 ${BOLD}${CYAN}│${RESET}"
+  echo -e "${BOLD}${CYAN}│${RESET}     ${DIM}Website:${RESET} ${BOLD}${YELLOW}https://hexapp.dev${RESET}                         ${BOLD}${CYAN}│${RESET}"
+  echo -e "${BOLD}${CYAN}└───────────────────────────────────────────────────────────────┘${RESET}"
 }
+
+# Remnawave full installer: Panel + Subscription Page + Nginx (SSL)
+# Single prompt: panel domain (e.g., panel.example.com)
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || return 1
@@ -62,9 +52,9 @@ inplace_sed() {
 
 print_header() {
   echo ""
-  echo -e "${BLUE}============================================================${RESET}"
-  echo -e "${BOLD}${CYAN}[HEX]${RESET} $1"
-  echo -e "${BLUE}============================================================${RESET}"
+  echo "============================================================"
+  echo "$1"
+  echo "============================================================"
 }
 
 abort() {
@@ -72,10 +62,10 @@ abort() {
   exit 1
 }
 
-print_banner_hex
-print_header "Remnawave Automated Installer"
+print_banner
+print_header "HEX APP – Remnawave Automated Installer"
 
-read -rp "${BOLD}Enter panel domain (e.g., panel.example.com): ${RESET}" PANEL_DOMAIN
+read -rp "Enter panel domain (e.g., panel.example.com): " PANEL_DOMAIN
 PANEL_DOMAIN=${PANEL_DOMAIN// /}
 
 [[ -z "$PANEL_DOMAIN" ]] && abort "Domain cannot be empty."
@@ -138,7 +128,7 @@ if [ ! -f "$BASE_DIR/docker-compose.yml" ]; then
   curl -fsSL -o "$BASE_DIR/docker-compose.yml" \
     https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/docker-compose-prod.yml
 else
-  echo -e "${YELLOW}docker-compose.yml already exists, keeping it${RESET}"
+  echo "docker-compose.yml already exists, keeping it"
 fi
 
 ENV_NEW=0
@@ -147,7 +137,7 @@ if [ ! -f "$ENV_FILE" ]; then
     https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample
   ENV_NEW=1
 else
-  echo -e "${YELLOW}.env already exists, keeping it${RESET}"
+  echo ".env already exists, keeping it"
 fi
 
 print_header "Writing panel docker-compose.override.yml to use external network"
@@ -177,7 +167,7 @@ if [ "$ENV_NEW" -eq 1 ]; then
   inplace_sed "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$POSTGRES_PASSWORD/" "$ENV_FILE"
   inplace_sed "s|^DATABASE_URL=\"postgresql://postgres:[^@]*@|DATABASE_URL=\"postgresql://postgres:$POSTGRES_PASSWORD@|" "$ENV_FILE"
 else
-  echo -e "${YELLOW}Preserving existing POSTGRES_PASSWORD and DATABASE_URL in .env${RESET}"
+  echo "Preserving existing POSTGRES_PASSWORD and DATABASE_URL in .env"
 fi
 
 # Domains
@@ -433,9 +423,10 @@ print_header "Starting Nginx"
 (cd "$NGINX_DIR" && docker compose up -d --force-recreate)
 
 echo ""
-echo -e "${GREEN}${BOLD}✔ All set! Installation completed successfully.${RESET}"
-echo -e "${BOLD}Panel:${RESET}        ${CYAN}https://$PANEL_DOMAIN/${RESET}"
-echo -e "${BOLD}Subscription:${RESET} ${CYAN}https://$PANEL_DOMAIN/sub/${RESET}"
+echo -e "${BOLD}${GREEN}✔ All set! Installation completed successfully.${RESET}"
+echo -e "${BOLD}Panel:${RESET}        https://$PANEL_DOMAIN/"
+echo -e "${BOLD}Subscription:${RESET} https://$PANEL_DOMAIN/sub/"
 echo -e "${DIM}Note: Ensure DNS for $PANEL_DOMAIN points to this server and port 8443 was free during certificate issuance.${RESET}"
+echo -e "${DIM}Powered by ${BOLD}HEX APP${RESET}${DIM} – ${BOLD}https://hexapp.dev${RESET}"
 
 
