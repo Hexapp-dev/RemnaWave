@@ -137,6 +137,15 @@ ensure_dir "$BASE_DIR"
 ensure_dir "$NGINX_DIR"
 ensure_dir "$SUB_DIR"
 
+print_header "Preparing subscription app-config.json"
+# Prefer local repo file if present; otherwise fetch from GitHub
+if [ -f "./app-config.json" ]; then
+  cp -f ./app-config.json "$SUB_DIR/app-config.json"
+elif [ ! -f "$SUB_DIR/app-config.json" ]; then
+  curl -fsSL -o "$SUB_DIR/app-config.json" \
+    https://raw.githubusercontent.com/Hexapp-dev/RemnaWave/refs/heads/main/app-config.json || true
+fi
+
 print_header "Downloading panel compose and env"
 if [ ! -f "$BASE_DIR/docker-compose.yml" ]; then
   curl -fsSL -o "$BASE_DIR/docker-compose.yml" \
@@ -427,6 +436,8 @@ services:
     restart: always
     ports:
       - '127.0.0.1:3010:3010'
+    volumes:
+      - './app-config.json:/opt/app/frontend/assets/app-config.json:ro'
     networks:
       - remnawave-network
 
