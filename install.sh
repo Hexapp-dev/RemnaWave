@@ -144,7 +144,11 @@ $COMPOSE_CMD -p remnawave up -d --remove-orphans
 
 echo ">>> Configuring Nginx..."
 NGINX_CONF="/etc/nginx/sites-available/remnawave.conf"
-cat > "$NGINX_CONF" <<'EOL'
+# Disable default site to avoid nginx welcome page
+rm -f /etc/nginx/sites-enabled/default || true
+
+# Write site config; expand FRONT_END_DOMAIN, but escape Nginx variables
+cat > "$NGINX_CONF" <<EOL
 server {
     listen 80;
     listen [::]:80;
@@ -154,24 +158,24 @@ server {
 
     location / {
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 60s;
         proxy_pass http://127.0.0.1:3000;
     }
 
     location /api/sub {
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 60s;
         proxy_pass http://127.0.0.1:8000;
     }
