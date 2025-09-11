@@ -349,8 +349,8 @@ upstream remnawave_subscription {
 server {
     server_name REPLACE_WITH_PANEL_DOMAIN;
 
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl reuseport;
+    listen [::]:443 ssl reuseport;
     http2 on;
 
     location / {
@@ -413,8 +413,8 @@ server {
 server {
     server_name REPLACE_WITH_SUB_DOMAIN;
 
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl reuseport;
+    listen [::]:443 ssl reuseport;
     http2 on;
 
     location / {
@@ -547,7 +547,7 @@ print_header "Starting Nginx"
 echo ""
 echo "All set! Installation completed successfully."
 echo "Panel:        https://$PANEL_DOMAIN/"
-echo "Subscription: https://$SUB_DOMAIN/"
-echo "Note: Ensure DNS for $PANEL_DOMAIN and $SUB_DOMAIN point to this server and port 8443 was free during certificate issuance."
+echo "Subscription: https://$PANEL_DOMAIN/sub/"
+echo "Note: Ensure DNS for $PANEL_DOMAIN points to this server and port 8443 was free during certificate issuance."
 
 
