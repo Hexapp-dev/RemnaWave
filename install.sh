@@ -183,10 +183,13 @@ acme.sh --set-default-ca --server letsencrypt || true
 # Ensure target files exist directory-wise
 ensure_dir "$NGINX_DIR"
 
-# Always fetch a fresh cert: revoke/remove old, then issue with --force
-acme.sh --revoke -d "$PANEL_DOMAIN" || true
-acme.sh --remove -d "$PANEL_DOMAIN" || true
-rm -f "$NGINX_DIR/privkey.key" "$NGINX_DIR/fullchain.pem" || true
+# Tolerate any errors in the cert block and always continue
+set +e
+# Always fetch a fresh cert: purge old state and force issue
+acme.sh --revoke -d "$PANEL_DOMAIN" >/dev/null 2>&1 || true
+acme.sh --remove -d "$PANEL_DOMAIN" >/dev/null 2>&1 || true
+rm -rf "$HOME/.acme.sh/$PANEL_DOMAIN" >/dev/null 2>&1 || true
+rm -f "$NGINX_DIR/privkey.key" "$NGINX_DIR/fullchain.pem" >/dev/null 2>&1 || true
 
 acme.sh --issue --standalone -d "$PANEL_DOMAIN" --alpn --tlsport 8443 --force || true
 
@@ -195,6 +198,9 @@ acme.sh --install-cert -d "$PANEL_DOMAIN" \
   --key-file "$NGINX_DIR/privkey.key" \
   --fullchain-file "$NGINX_DIR/fullchain.pem" \
   --reloadcmd "cd $NGINX_DIR && docker compose restart remnawave-nginx || true" || true
+set -e
+
+print_header "SSL step finished, proceeding with Nginx and Subscription"
 
 print_header "Writing Nginx configuration"
 cat > "$NGINX_DIR/nginx.conf" <<'EOF'
