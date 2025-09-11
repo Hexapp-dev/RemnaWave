@@ -15,36 +15,6 @@ clear_screen() {
   fi
 }
 
-print_banner() {
-  local MAGENTA CYAN GRAY SEP BOLD RESET
-  if [ -t 1 ]; then
-    MAGENTA='\033[38;5;141m'  # muted orchid
-    CYAN='\033[38;5;81m'     # soft teal
-    GRAY='\033[38;5;245m'    # neutral gray text
-    SEP='\033[38;5;244m'     # subtle separator
-    BOLD='\033[1m'
-    RESET='\033[0m'
-  else
-    MAGENTA=''; CYAN=''; GRAY=''; SEP=''; BOLD=''; RESET=''
-  fi
-
-  clear_screen
-  echo ""
-  echo -e "${SEP}╔══════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${SEP}║                                                          ║${RESET}"
-  echo -e "${SEP}║   ${MAGENTA}${BOLD}██╗  ██╗███████╗██╗  ██╗  ${CYAN}  █████╗ ██████╗ ██████╗     ${SEP}║${RESET}"
-  echo -e "${SEP}║   ${MAGENTA}${BOLD}██║  ██║██╔════╝╚██╗██╔╝  ${CYAN} ██╔══██╗██╔══██╗██╔══██╗    ${SEP}║${RESET}"
-  echo -e "${SEP}║   ${MAGENTA}${BOLD}███████║█████╗   ╚███╔╝   ${CYAN} ███████║██████╔╝██████╔╝    ${SEP}║${RESET}"
-  echo -e "${SEP}║   ${MAGENTA}${BOLD}██╔══██║██╔══╝   ██╔██╗   ${CYAN} ██╔══██║██╔═══╝ ██╔═══╝     ${SEP}║${RESET}"
-  echo -e "${SEP}║   ${MAGENTA}${BOLD}██║  ██║███████╗██╔╝ ██╗  ${CYAN} ██║  ██║██║     ██║         ${SEP}║${RESET}"
-  echo -e "${SEP}║   ${MAGENTA}${BOLD}╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝  ${CYAN} ╚═╝  ╚═╝╚═╝     ╚═╝         ${SEP}║${RESET}"
-  echo -e "${SEP}║                                                          ║${RESET}"
-  echo -e "${SEP}╚══════════════════════════════════════════════════════════╝${RESET}"
-  echo -e "${GRAY} Website: https://hexapp.dev${RESET}"
-  echo -e "${GRAY} Installer: Remnawave Panel + Subscription + Nginx (SSL)${RESET}\n"
-}
-
-
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || return 1
 }
@@ -75,6 +45,35 @@ print_header() {
 abort() {
   echo "Error: $1" >&2
   exit 1
+}
+
+print_banner() {
+  local MAGENTA CYAN GRAY SEP BOLD RESET
+  if [ -t 1 ]; then
+    MAGENTA='\033[38;5;141m'  # muted orchid
+    CYAN='\033[38;5;81m'     # soft teal
+    GRAY='\033[38;5;245m'    # neutral gray text
+    SEP='\033[38;5;244m'     # subtle separator
+    BOLD='\033[1m'
+    RESET='\033[0m'
+  else
+    MAGENTA=''; CYAN=''; GRAY=''; SEP=''; BOLD=''; RESET=''
+  fi
+
+  clear_screen
+  echo ""
+  echo -e "${SEP}╔══════════════════════════════════════════════════════════╗${RESET}"
+  echo -e "${SEP}║                                                          ║${RESET}"
+  echo -e "${SEP}║   ${MAGENTA}${BOLD}██╗  ██╗███████╗██╗  ██╗  ${CYAN}  █████╗ ██████╗ ██████╗     ${SEP}║${RESET}"
+  echo -e "${SEP}║   ${MAGENTA}${BOLD}██║  ██║██╔════╝╚██╗██╔╝  ${CYAN} ██╔══██╗██╔══██╗██╔══██╗    ${SEP}║${RESET}"
+  echo -e "${SEP}║   ${MAGENTA}${BOLD}███████║█████╗   ╚███╔╝   ${CYAN} ███████║██████╔╝██████╔╝    ${SEP}║${RESET}"
+  echo -e "${SEP}║   ${MAGENTA}${BOLD}██╔══██║██╔══╝   ██╔██╗   ${CYAN} ██╔══██║██╔═══╝ ██╔═══╝     ${SEP}║${RESET}"
+  echo -e "${SEP}║   ${MAGENTA}${BOLD}██║  ██║███████╗██╔╝ ██╗  ${CYAN} ██║  ██║██║     ██║         ${SEP}║${RESET}"
+  echo -e "${SEP}║   ${MAGENTA}${BOLD}╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝  ${CYAN} ╚═╝  ╚═╝╚═╝     ╚═╝         ${SEP}║${RESET}"
+  echo -e "${SEP}║                                                          ║${RESET}"
+  echo -e "${SEP}╚══════════════════════════════════════════════════════════╝${RESET}"
+  echo -e "${GRAY} Website: https://hexapp.dev${RESET}"
+  echo -e "${GRAY} Installer: Remnawave Panel + Subscription + Nginx (SSL)${RESET}\n"
 }
 
 print_banner
