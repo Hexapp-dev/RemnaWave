@@ -349,10 +349,10 @@ server {
         sub_filter 'src="/assets' 'src="/sub/assets';
     }
 
-    # Map top-level assets to subscription service to avoid wrong MIME from panel
-    location /assets/ {
+    # Directly proxy sub assets without touching panel root assets
+    location /sub/assets/ {
         proxy_http_version 1.1;
-        proxy_pass http://remnawave_subscription;
+        proxy_pass http://remnawave_subscription/assets/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -362,6 +362,8 @@ server {
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
     }
+
+    # Note: Top-level /assets must remain for Panel. Subscription assets are rewritten to /sub/assets via sub_filter above.
 
     # SSL Configuration (Mozilla Intermediate Guidelines)
     ssl_protocols          TLSv1.2 TLSv1.3;
