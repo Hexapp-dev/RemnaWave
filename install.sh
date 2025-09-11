@@ -170,6 +170,41 @@ fi
 
 echo ">>> Stopping any existing RemnaWave stack..."
 $COMPOSE_CMD -p remnawave down --remove-orphans || true
+
+# Prepare Subscription Page (static) assets and config
+SUB_DIR="$INSTALL_DIR/subscription"
+mkdir -p "$SUB_DIR"
+cat > "$SUB_DIR/app-config.json" <<EOC
+{
+  "apiBaseUrl": "https://$FRONT_END_DOMAIN$SUB_PUBLIC_DOMAIN",
+  "panelUrl": "https://$FRONT_END_DOMAIN",
+  "title": "RemnaWave Subscription",
+  "brand": "RemnaWave"
+}
+EOC
+# Minimal static index (placeholder). Replace with official build when available.
+cat > "$SUB_DIR/index.html" <<'EOC'
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RemnaWave Subscription</title><style>body{font-family:system-ui,sans-serif;margin:2rem;}</style></head><body><h1>RemnaWave Subscription Page</h1><p>This is a minimal placeholder. The API base is configured in <code>app-config.json</code>.</p><p>Use your client to subscribe via the panel; public API base is exposed at <code>/api/sub</code>.</p></body></html>
+EOC
+
+# Extend compose to include subscription page service
+COMPOSE_OVERRIDE="$INSTALL_DIR/docker-compose.override.yml"
+cat > "$COMPOSE_OVERRIDE" <<'EOC'
+services:
+  remnawave-subscription:
+    image: nginx:alpine
+    container_name: remnawave-subscription
+    hostname: remnawave-subscription
+    restart: always
+    networks:
+      - remnawave-network
+    ports:
+      - "127.0.0.1:3002:80"
+    volumes:
+      - ./subscription:/usr/share/nginx/html:ro
+EOC
+
 echo ">>> Starting RemnaWave with Docker..."
 $COMPOSE_CMD -p remnawave up -d --remove-orphans
 
@@ -178,31 +213,33 @@ NGINX_CONF="/etc/nginx/sites-available/remnawave.conf"
 # Disable default site to avoid nginx welcome page
 rm -f /etc/nginx/sites-enabled/default || true
 
-# Build root block depending on frontend availability
-ROOT_BLOCK=""
-if [ -n "$FRONTEND_UPSTREAM_PORT" ]; then
-    ROOT_BLOCK=$(cat << 'EOF'
-    location / {
+ROOT_BLOCK=$(cat << 'EOF'
+    # Redirect root to panel path
+    location = / {
+        return 302 /panel;
+    }
+    # Panel (proxy to backend UI if served there)
+    location /panel {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 60s;
-        proxy_pass http://127.0.0.1:__FRONTEND_PORT__;
+        proxy_pass http://127.0.0.1:3000;
+    }
+    # Subscription static site
+    location /sub/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+        proxy_pass http://127.0.0.1:3002/;
     }
 EOF
 )
-    ROOT_BLOCK="${ROOT_BLOCK/__FRONTEND_PORT__/$FRONTEND_UPSTREAM_PORT}"
-else
-    ROOT_BLOCK=$(cat << 'EOF'
-    location = / {
-        return 200 'RemnaWave backend is running. Frontend not deployed yet.';
-        add_header Content-Type text/plain;
-    }
-EOF
-)
-fi
 
 # Write site config; expand FRONT_END_DOMAIN, but escape Nginx variables
 cat > "$NGINX_CONF" <<EOL
