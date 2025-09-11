@@ -38,6 +38,18 @@ if [ -z "${SUB_PUBLIC_DOMAIN}" ]; then
         SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN_DEFAULT
     fi
 fi
+# Coerce SUB_PUBLIC_DOMAIN to a path (e.g. /api/sub), not a full domain
+SUB_TMP="$SUB_PUBLIC_DOMAIN"
+if printf '%s' "$SUB_TMP" | grep -qE '^https?://'; then
+    SUB_TMP="/${SUB_TMP#*://*/}"
+fi
+if printf '%s' "$SUB_TMP" | grep -qE '^[^/]+/'; then
+    SUB_TMP="/${SUB_TMP#*/}"
+fi
+case "$SUB_TMP" in 
+    /*) SUB_PUBLIC_DOMAIN="$SUB_TMP" ;;
+    *) SUB_PUBLIC_DOMAIN="/api/sub" ;;
+esac
 if [ -z "${ADMIN_EMAIL}" ]; then
     if [ -t 0 ]; then
         read -p "Enter admin email for Certbot (e.g. admin@$FRONT_END_DOMAIN): " ADMIN_EMAIL
@@ -114,6 +126,10 @@ if command -v perl >/dev/null 2>&1; then
     perl -0777 -pe 's/([^\n])((FRONT_END_DOMAIN|SUB_PUBLIC_DOMAIN|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|METRICS_PASSWORD|WEBHOOK_SECRET|DATABASE_URL)=)/$1\n$2/g' -i .env || true
 fi
 
+# Ensure singular, path-only SUB_PUBLIC_DOMAIN in .env
+sed -i '/^SUB_PUBLIC_DOMAIN=/d' .env
+echo "SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN" >> .env
+
 DB_USER=$(grep -E '^POSTGRES_USER=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
 [ -z "${DB_USER}" ] && DB_USER=postgres
 DB_PASS=$(grep -E '^POSTGRES_PASSWORD=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
@@ -168,16 +184,10 @@ server {
 
     client_max_body_size 16m;
 
-    location / {
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 60s;
-        proxy_pass http://127.0.0.1:3000;
+    # Temporary root response until frontend is deployed
+    location = / {
+        return 200 'RemnaWave backend is running. Frontend not deployed yet.';
+        add_header Content-Type text/plain;
     }
 
     location /api/sub {
@@ -189,7 +199,7 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 60s;
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:3000;
     }
 }
 EOL
