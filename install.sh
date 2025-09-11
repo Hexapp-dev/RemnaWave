@@ -183,8 +183,12 @@ acme.sh --set-default-ca --server letsencrypt || true
 # Ensure target files exist directory-wise
 ensure_dir "$NGINX_DIR"
 
-# Try issuance; do not abort on skip/non-zero (e.g., already issued)
-acme.sh --issue --standalone -d "$PANEL_DOMAIN" --alpn --tlsport 8443 || true
+# Always fetch a fresh cert: revoke/remove old, then issue with --force
+acme.sh --revoke -d "$PANEL_DOMAIN" || true
+acme.sh --remove -d "$PANEL_DOMAIN" || true
+rm -f "$NGINX_DIR/privkey.key" "$NGINX_DIR/fullchain.pem" || true
+
+acme.sh --issue --standalone -d "$PANEL_DOMAIN" --alpn --tlsport 8443 --force || true
 
 # Always install cert/key to target paths
 acme.sh --install-cert -d "$PANEL_DOMAIN" \
