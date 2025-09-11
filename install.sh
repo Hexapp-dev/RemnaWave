@@ -108,6 +108,12 @@ else
     grep -q '^POSTGRES_DB=' .env || echo "POSTGRES_DB=postgres" >> .env
 fi
 
+# Normalize .env: fix CRLF and ensure critical keys start on their own line
+sed -i 's/\r$//' .env || true
+if command -v perl >/dev/null 2>&1; then
+    perl -0777 -pe 's/([^\n])((FRONT_END_DOMAIN|SUB_PUBLIC_DOMAIN|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|METRICS_PASSWORD|WEBHOOK_SECRET|DATABASE_URL)=)/$1\n$2/g' -i .env || true
+fi
+
 DB_USER=$(grep -E '^POSTGRES_USER=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
 [ -z "${DB_USER}" ] && DB_USER=postgres
 DB_PASS=$(grep -E '^POSTGRES_PASSWORD=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
