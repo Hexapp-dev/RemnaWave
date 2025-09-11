@@ -178,14 +178,19 @@ if require_cmd systemctl; then
 fi
 
 # Use Let's Encrypt as CA (instead of ZeroSSL/EAB)
-acme.sh --set-default-ca --server letsencrypt
+acme.sh --set-default-ca --server letsencrypt || true
 
 # Ensure target files exist directory-wise
 ensure_dir "$NGINX_DIR"
-acme.sh --issue --standalone -d "$PANEL_DOMAIN" \
+
+# Try issuance; do not abort on skip/non-zero (e.g., already issued)
+acme.sh --issue --standalone -d "$PANEL_DOMAIN" --alpn --tlsport 8443 || true
+
+# Always install cert/key to target paths
+acme.sh --install-cert -d "$PANEL_DOMAIN" \
   --key-file "$NGINX_DIR/privkey.key" \
   --fullchain-file "$NGINX_DIR/fullchain.pem" \
-  --alpn --tlsport 8443
+  --reloadcmd "cd $NGINX_DIR && docker compose restart remnawave-nginx || true" || true
 
 print_header "Writing Nginx configuration"
 cat > "$NGINX_DIR/nginx.conf" <<'EOF'
