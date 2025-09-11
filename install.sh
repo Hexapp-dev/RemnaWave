@@ -176,7 +176,15 @@ acme.sh --set-default-ca --server letsencrypt
 
 # Ensure target files exist directory-wise
 ensure_dir "$NGINX_DIR"
-acme.sh --issue --standalone -d "$PANEL_DOMAIN" \
+# If a cert already exists but was issued by another CA, force reissue with Let's Encrypt
+FORCE_FLAG=""
+if [ -d "$HOME/.acme.sh/$PANEL_DOMAIN" ]; then
+  if ! grep -Riq "letsencrypt.org" "$HOME/.acme.sh/$PANEL_DOMAIN" 2>/dev/null; then
+    FORCE_FLAG="--force"
+  fi
+fi
+
+acme.sh --issue --standalone -d "$PANEL_DOMAIN" $FORCE_FLAG \
   --key-file "$NGINX_DIR/privkey.key" \
   --fullchain-file "$NGINX_DIR/fullchain.pem" \
   --alpn --tlsport 8443
