@@ -105,9 +105,11 @@ else
   echo "docker-compose.yml already exists, keeping it"
 fi
 
+ENV_NEW=0
 if [ ! -f "$ENV_FILE" ]; then
   curl -fsSL -o "$ENV_FILE" \
     https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample
+  ENV_NEW=1
 else
   echo ".env already exists, keeping it"
 fi
@@ -130,9 +132,13 @@ inplace_sed "s/^METRICS_PASS=.*/METRICS_PASS=$(openssl rand -hex 64)/" "$ENV_FIL
 inplace_sed "s/^WEBHOOK_SECRET_HEADER=.*/WEBHOOK_SECRET_HEADER=$(openssl rand -hex 64)/" "$ENV_FILE"
 
 # Postgres password and DATABASE_URL alignment
-POSTGRES_PASSWORD=$(openssl rand -hex 24)
-inplace_sed "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$POSTGRES_PASSWORD/" "$ENV_FILE"
-inplace_sed "s|^DATABASE_URL=\"postgresql://postgres:[^@]*@|DATABASE_URL=\"postgresql://postgres:$POSTGRES_PASSWORD@|" "$ENV_FILE"
+if [ "$ENV_NEW" -eq 1 ]; then
+  POSTGRES_PASSWORD=$(openssl rand -hex 24)
+  inplace_sed "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$POSTGRES_PASSWORD/" "$ENV_FILE"
+  inplace_sed "s|^DATABASE_URL=\"postgresql://postgres:[^@]*@|DATABASE_URL=\"postgresql://postgres:$POSTGRES_PASSWORD@|" "$ENV_FILE"
+else
+  echo "Preserving existing POSTGRES_PASSWORD and DATABASE_URL in .env"
+fi
 
 # Domains
 if grep -q '^FRONT_END_DOMAIN=' "$ENV_FILE"; then
@@ -171,41 +177,15 @@ if require_cmd systemctl; then
   sudo systemctl enable --now cron 2>/dev/null || sudo systemctl enable --now crond 2>/dev/null || true
 fi
 
+# Use Let's Encrypt as CA (instead of ZeroSSL/EAB)
+acme.sh --set-default-ca --server letsencrypt
+
 # Ensure target files exist directory-wise
 ensure_dir "$NGINX_DIR"
-
-# Detect acme.sh cert location (RSA or ECC)
-CERT_DIR_RSA="$HOME/.acme.sh/$PANEL_DOMAIN"
-CERT_DIR_ECC="$HOME/.acme.sh/${PANEL_DOMAIN}_ecc"
-ECC_FLAG=""
-if [ -d "$CERT_DIR_ECC" ]; then
-  CERT_DIR="$CERT_DIR_ECC"
-  ECC_FLAG="--ecc"
-elif [ -d "$CERT_DIR_RSA" ]; then
-  CERT_DIR="$CERT_DIR_RSA"
-else
-  CERT_DIR=""
-fi
-
-# If cert directory exists, skip issuance (avoid 'Skipping. Next renewal time...' noise)
-if [ -n "$CERT_DIR" ]; then
-  echo "Existing cert for $PANEL_DOMAIN found at $CERT_DIR. Skipping issuance and installing to Nginx paths."
-else
-  # Use Let's Encrypt as CA and issue a new cert (RSA by default)
-  acme.sh --set-default-ca --server letsencrypt
-  acme.sh --issue --standalone -d "$PANEL_DOMAIN" \
-    --alpn --tlsport 8443
-  # Re-detect (acme.sh may default to ECC on some setups)
-  if [ -d "$CERT_DIR_ECC" ]; then
-    ECC_FLAG="--ecc"
-  fi
-fi
-
-# Ensure cert and key are installed to target paths even if issuance was skipped
-acme.sh --install-cert -d "$PANEL_DOMAIN" $ECC_FLAG \
+acme.sh --issue --standalone -d "$PANEL_DOMAIN" \
   --key-file "$NGINX_DIR/privkey.key" \
   --fullchain-file "$NGINX_DIR/fullchain.pem" \
-  --reloadcmd "cd $NGINX_DIR && docker compose restart remnawave-nginx || true"
+  --alpn --tlsport 8443
 
 print_header "Writing Nginx configuration"
 cat > "$NGINX_DIR/nginx.conf" <<'EOF'
@@ -355,7 +335,7 @@ print_header "Starting Nginx"
 (cd "$NGINX_DIR" && docker compose up -d)
 
 echo ""
-echo "All set!"
+echo "All set! Installation completed successfully."
 echo "Panel:        https://$PANEL_DOMAIN/"
 echo "Subscription: https://$PANEL_DOMAIN/sub/"
 echo "Note: Ensure DNS for $PANEL_DOMAIN points to this server and port 8443 was free during certificate issuance."
