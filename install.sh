@@ -338,8 +338,15 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-Port $server_port;
+        proxy_set_header X-Forwarded-Prefix /sub;
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
+
+        # Rewrite asset URLs inside HTML so absolute /assets → /sub/assets
+        sub_filter_once off;
+        sub_filter_types text/html;
+        sub_filter 'href="/assets' 'href="/sub/assets';
+        sub_filter 'src="/assets' 'src="/sub/assets';
     }
 
     # SSL Configuration (Mozilla Intermediate Guidelines)
