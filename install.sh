@@ -1,86 +1,93 @@
 #!/bin/bash
-
 set -e
 
-echo "=== RemnaWave Panel Installer ==="
+# === RemnaWave Full Auto Installer ===
 
-# --- User Inputs ---
+echo "=== RemNaWave Panel Auto Installer ==="
+
+# --- User Input ---
 read -p "Enter FRONT_END_DOMAIN (e.g. panel.example.com): " FRONT_END_DOMAIN
-read -p "Enter SUB_PUBLIC_DOMAIN (default: ${FRONT_END_DOMAIN}/api/sub): " SUB_PUBLIC_DOMAIN
-SUB_PUBLIC_DOMAIN=${SUB_PUBLIC_DOMAIN:-${FRONT_END_DOMAIN}/api/sub}
+SUB_PUBLIC_DOMAIN_DEFAULT="$FRONT_END_DOMAIN/api/sub"
+read -p "Enter SUB_PUBLIC_DOMAIN (default: $SUB_PUBLIC_DOMAIN_DEFAULT): " SUB_PUBLIC_DOMAIN
+SUB_PUBLIC_DOMAIN=${SUB_PUBLIC_DOMAIN:-$SUB_PUBLIC_DOMAIN_DEFAULT}
 
-echo -e "\nYou entered:"
-echo "  FRONT_END_DOMAIN = $FRONT_END_DOMAIN"
-echo "  SUB_PUBLIC_DOMAIN = $SUB_PUBLIC_DOMAIN"
+echo -e "\nYou entered:\n  FRONT_END_DOMAIN = $FRONT_END_DOMAIN\n  SUB_PUBLIC_DOMAIN = $SUB_PUBLIC_DOMAIN"
+echo "Proceed with installation automatically..."
+sleep 2
 
-read -p "Proceed with installation? (y/n): " CONFIRM
-if [[ "$CONFIRM" != "y" ]]; then
-    echo "Installation aborted."
-    exit 1
+# --- Stop and remove old containers ---
+echo ">>> Stopping and removing old RemnaWave containers..."
+if [ "$(docker ps -aq --filter "name=remnawave")" ]; then
+    docker stop $(docker ps -aq --filter "name=remnawave") || true
+    docker rm -f $(docker ps -aq --filter "name=remnawave") || true
+    echo "Old containers removed."
 fi
 
-# --- Check Ports ---
+# --- Free ports 80 & 443 ---
 echo ">>> Checking ports 80 and 443..."
 for PORT in 80 443; do
-    if ss -tulpn | grep -q ":$PORT "; then
-        echo "Port $PORT is already in use. Please free it before running the installer."
-        exit 1
+    if lsof -i:$PORT >/dev/null; then
+        echo "Port $PORT is in use. Killing process..."
+        fuser -k $PORT/tcp || true
     fi
 done
 
-# --- Install Dependencies ---
+# --- Update & install dependencies ---
 echo ">>> Installing dependencies..."
-apt update
-apt install -y lsb-release ca-certificates curl software-properties-common gnupg2 ufw
+apt update -y
+apt install -y lsb-release ca-certificates curl software-properties-common gnupg2 git unzip socat
 
-# --- Docker & Docker Compose ---
-echo ">>> Installing Docker..."
-if ! command -v docker &> /dev/null; then
-    curl -fsSL https://get.docker.com | bash
+# --- Install Docker if not exists ---
+if ! command -v docker >/dev/null; then
+    echo ">>> Installing Docker..."
+    curl -fsSL https://get.docker.com | sh
 fi
 
-echo ">>> Installing Docker Compose..."
-DOCKER_COMPOSE_VERSION="2.24.1"
-if ! docker compose version &> /dev/null; then
-    curl -L "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" \
-        -o /usr/local/bin/docker-compose
+# --- Install Docker Compose if not exists ---
+if ! command -v docker-compose >/dev/null; then
+    echo ">>> Installing Docker Compose..."
+    DOCKER_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep -Po '"tag_name": "\K.*?(?=")')
+    curl -L "https://github.com/docker/compose/releases/download/$DOCKER_COMPOSE_VERSION/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
     chmod +x /usr/local/bin/docker-compose
 fi
 
-# --- Setup Directories ---
-echo ">>> Setting up RemnaWave directories..."
-mkdir -p /opt/remnawave
-cd /opt/remnawave
+# --- Setup RemnaWave folder ---
+INSTALL_DIR="/opt/remnawave"
+mkdir -p $INSTALL_DIR
+cd $INSTALL_DIR
 
-# --- Download docker-compose.yml and .env.sample ---
-echo ">>> Downloading docker-compose.yml and .env.sample..."
-curl -sSL https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/docker-compose-prod.yml -o docker-compose.yml
-curl -sSL https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample -o .env.sample
+# --- Download docker-compose.yml and .env.example ---
+echo ">>> Downloading docker-compose.yml and .env.example..."
+curl -s -L https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/docker-compose-prod.yml -o docker-compose.yml
+curl -s -L https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample -o .env.example
 
-# --- Generate Secrets ---
+# --- Generate secrets ---
 echo ">>> Generating secrets..."
-DB_PASSWORD=$(openssl rand -hex 16)
+POSTGRES_PASSWORD=$(openssl rand -hex 16)
 METRICS_PASSWORD=$(openssl rand -hex 16)
 WEBHOOK_SECRET=$(openssl rand -hex 16)
 
 # --- Configure .env ---
 echo ">>> Configuring .env..."
-cp .env.sample .env
-sed -i "s|FRONT_END_DOMAIN=.*|FRONT_END_DOMAIN=$FRONT_END_DOMAIN|" .env
-sed -i "s|SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN|" .env
-sed -i "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$DB_PASSWORD|" .env
-sed -i "s|METRICS_PASSWORD=.*|METRICS_PASSWORD=$METRICS_PASSWORD|" .env
-sed -i "s|WEBHOOK_SECRET=.*|WEBHOOK_SECRET=$WEBHOOK_SECRET|" .env
+cp .env.example .env
+sed -i "s|^FRONT_END_DOMAIN=.*|FRONT_END_DOMAIN=$FRONT_END_DOMAIN|" .env
+sed -i "s|^SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN|" .env
+sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$POSTGRES_PASSWORD|" .env
+sed -i "s|^METRICS_PASSWORD=.*|METRICS_PASSWORD=$METRICS_PASSWORD|" .env
+sed -i "s|^WEBHOOK_SECRET=.*|WEBHOOK_SECRET=$WEBHOOK_SECRET|" .env
 
-# --- Start Docker ---
+# --- Start Docker containers ---
 echo ">>> Starting RemnaWave with Docker..."
-docker compose pull
-docker compose up -d
+docker-compose up -d --remove-orphans
 
-# --- Install Nginx ---
-echo ">>> Installing Nginx..."
-apt install -y nginx
-cat > /etc/nginx/sites-available/remnawave <<EOL
+# --- Install Nginx & Certbot ---
+echo ">>> Installing Nginx & Certbot..."
+apt install -y nginx certbot python3-certbot-nginx
+
+# --- Configure Nginx ---
+echo ">>> Configuring Nginx..."
+NGINX_CONF="/etc/nginx/sites-available/remnawave.conf"
+cat > $NGINX_CONF <<EOL
 server {
     listen 80;
     server_name $FRONT_END_DOMAIN;
@@ -92,29 +99,29 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
+
+    location /api/sub {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
 }
 EOL
 
-ln -sf /etc/nginx/sites-available/remnawave /etc/nginx/sites-enabled/remnawave
-nginx -t && systemctl restart nginx
+ln -sf $NGINX_CONF /etc/nginx/sites-enabled/remnawave.conf
+nginx -t
+systemctl restart nginx
 
-# --- Obtain SSL ---
-echo ">>> Attempting to obtain SSL certificate..."
-if ! apt install -y certbot python3-certbot-nginx; then
-    echo "Certbot installation failed. Continuing with HTTP..."
-else
-    if ! certbot --nginx -d "$FRONT_END_DOMAIN" --non-interactive --agree-tos -m admin@$FRONT_END_DOMAIN; then
-        echo "⚠️ SSL setup failed, continuing with HTTP. You can fix SSL manually later."
-    fi
-fi
+# --- Obtain SSL Certificate ---
+echo ">>> Obtaining SSL certificate with Certbot..."
+certbot --nginx -d $FRONT_END_DOMAIN --non-interactive --agree-tos -m admin@$FRONT_END_DOMAIN || true
 
-# --- Completion ---
+# --- Done ---
 echo -e "\n=== Installation complete! ==="
-echo "Panel should be available at: http://$FRONT_END_DOMAIN (or https if SSL succeeded)"
-echo ""
-echo "Database password: $DB_PASSWORD"
+echo "Panel should be available at: https://$FRONT_END_DOMAIN"
+echo "Database password: $POSTGRES_PASSWORD"
 echo "Metrics password: $METRICS_PASSWORD"
 echo "Webhook secret header: $WEBHOOK_SECRET"
-echo ""
-echo "(These values are saved in /opt/remnawave/.env)"
-echo "⚠️ If a new kernel was installed, please reboot the server to apply changes."
+echo "(These values are saved in $INSTALL_DIR/.env)"
