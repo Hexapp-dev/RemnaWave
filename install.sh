@@ -1,282 +1,321 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
 set -euo pipefail
 
-echo "=== RemNaWave Panel Auto Installer ==="
+# Remnawave full installer: Panel + Subscription Page + Nginx (SSL)
+# Single prompt: panel domain (e.g., panel.example.com)
 
-# Preconditions: must be root, Debian/Ubuntu family
-if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    echo "This installer must be run as root." >&2
-    exit 1
-fi
-if [ -r /etc/os-release ]; then
-    . /etc/os-release
-    case "${ID_LIKE:-$ID}" in
-        *debian*) : ;;
-        *) echo "Supported only on Debian/Ubuntu family." >&2; exit 1 ;;
-    esac
-fi
-
-# Input (env-first; fallback to prompts if TTY)
-NON_INTERACTIVE="${NON_INTERACTIVE:-}"
-FRONT_END_DOMAIN="${FRONT_END_DOMAIN:-}"
-SUB_PUBLIC_DOMAIN="${SUB_PUBLIC_DOMAIN:-}"
-ADMIN_EMAIL="${ADMIN_EMAIL:-}"
-FRONTEND_UPSTREAM_PORT="${FRONTEND_UPSTREAM_PORT:-${FRONTEND_PORT:-}}"
-
-if [ -z "${FRONT_END_DOMAIN}" ]; then
-    if [ -t 0 ]; then
-        read -p "Enter FRONT_END_DOMAIN (e.g. panel.example.com): " FRONT_END_DOMAIN
-    else
-        echo "FRONT_END_DOMAIN is required." >&2; exit 1
-    fi
-fi
-SUB_PUBLIC_DOMAIN_DEFAULT="$FRONT_END_DOMAIN/api/sub"
-if [ -z "${SUB_PUBLIC_DOMAIN}" ]; then
-    if [ -t 0 ]; then
-        read -p "Enter SUB_PUBLIC_DOMAIN (default: $SUB_PUBLIC_DOMAIN_DEFAULT): " SUB_PUBLIC_DOMAIN
-        SUB_PUBLIC_DOMAIN=${SUB_PUBLIC_DOMAIN:-$SUB_PUBLIC_DOMAIN_DEFAULT}
-    else
-        SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN_DEFAULT
-    fi
-fi
-# Coerce SUB_PUBLIC_DOMAIN to a path (e.g. /api/sub), not a full domain
-SUB_TMP="$SUB_PUBLIC_DOMAIN"
-if printf '%s' "$SUB_TMP" | grep -qE '^https?://'; then
-    SUB_TMP="/${SUB_TMP#*://*/}"
-fi
-if printf '%s' "$SUB_TMP" | grep -qE '^[^/]+/'; then
-    SUB_TMP="/${SUB_TMP#*/}"
-fi
-case "$SUB_TMP" in 
-    /*) SUB_PUBLIC_DOMAIN="$SUB_TMP" ;;
-    *) SUB_PUBLIC_DOMAIN="/api/sub" ;;
-esac
-if [ -z "${ADMIN_EMAIL}" ]; then
-    if [ -t 0 ]; then
-        read -p "Enter admin email for Certbot (e.g. admin@$FRONT_END_DOMAIN): " ADMIN_EMAIL
-    else
-        ADMIN_EMAIL="admin@$FRONT_END_DOMAIN"
-    fi
-fi
-
-echo -e "\nYou entered:\n  FRONT_END_DOMAIN = $FRONT_END_DOMAIN\n  SUB_PUBLIC_DOMAIN = $SUB_PUBLIC_DOMAIN\n  ADMIN_EMAIL = $ADMIN_EMAIL"
-echo "Proceeding with installation..."
-sleep 1
-
-# Dependencies
-echo ">>> Installing dependencies..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y lsb-release ca-certificates curl software-properties-common gnupg2 git unzip socat \
-    openssl lsof psmisc nginx certbot python3-certbot-nginx
-
-# Docker
-if ! command -v docker >/dev/null 2>&1; then
-    echo ">>> Installing Docker..."
-    curl -fsSL https://get.docker.com | sh
-fi
-
-# Compose (prefer v2 plugin)
-COMPOSE_CMD=""
-if docker compose version >/dev/null 2>&1; then
-    COMPOSE_CMD="docker compose"
-elif command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE_CMD="docker-compose"
-else
-    echo ">>> Installing docker compose plugin..."
-    apt-get install -y docker-compose-plugin || true
-    if docker compose version >/dev/null 2>&1; then
-        COMPOSE_CMD="docker compose"
-    elif command -v docker-compose >/dev/null 2>&1; then
-        COMPOSE_CMD="docker-compose"
-    else
-        echo "Failed to install Docker Compose." >&2; exit 1
-    fi
-fi
-
-# Workspace
-INSTALL_DIR="/opt/remnawave"
-mkdir -p "$INSTALL_DIR"
-cd "$INSTALL_DIR"
-
-echo ">>> Downloading docker-compose.yml and .env.example..."
-curl -s -L https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/docker-compose-prod.yml -o docker-compose.yml
-curl -s -L https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample -o .env.example
-
-echo ">>> Configuring .env..."
-umask 027
-if [ -f .env ]; then
-    echo "Found existing .env. Reusing existing secrets."
-else
-    cp .env.example .env
-    POSTGRES_PASSWORD=$(openssl rand -hex 16)
-    METRICS_PASSWORD=$(openssl rand -hex 16)
-    WEBHOOK_SECRET=$(openssl rand -hex 16)
-    grep -q '^FRONT_END_DOMAIN=' .env && sed -i "s|^FRONT_END_DOMAIN=.*|FRONT_END_DOMAIN=$FRONT_END_DOMAIN|" .env || echo "FRONT_END_DOMAIN=$FRONT_END_DOMAIN" >> .env
-    grep -q '^SUB_PUBLIC_DOMAIN=' .env && sed -i "s|^SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN|" .env || echo "SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN" >> .env
-    grep -q '^POSTGRES_PASSWORD=' .env && sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$POSTGRES_PASSWORD|" .env || echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> .env
-    grep -q '^METRICS_PASSWORD=' .env && sed -i "s|^METRICS_PASSWORD=.*|METRICS_PASSWORD=$METRICS_PASSWORD|" .env || echo "METRICS_PASSWORD=$METRICS_PASSWORD" >> .env
-    grep -q '^WEBHOOK_SECRET=' .env && sed -i "s|^WEBHOOK_SECRET=.*|WEBHOOK_SECRET=$WEBHOOK_SECRET|" .env || echo "WEBHOOK_SECRET=$WEBHOOK_SECRET" >> .env
-    # Optional CORS for frontend domain
-    grep -q '^CORS_ORIGINS=' .env || echo "CORS_ORIGINS=https://$FRONT_END_DOMAIN" >> .env
-    grep -q '^POSTGRES_USER=' .env || echo "POSTGRES_USER=postgres" >> .env
-    grep -q '^POSTGRES_DB=' .env || echo "POSTGRES_DB=postgres" >> .env
-fi
-
-# Normalize .env: fix CRLF and ensure critical keys start on their own line
-sed -i 's/\r$//' .env || true
-if command -v perl >/dev/null 2>&1; then
-    perl -0777 -pe 's/([^\n])((FRONT_END_DOMAIN|SUB_PUBLIC_DOMAIN|POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB|METRICS_PASSWORD|WEBHOOK_SECRET|DATABASE_URL)=)/$1\n$2/g' -i .env || true
-fi
-
-# Ensure singular, path-only SUB_PUBLIC_DOMAIN in .env
-sed -i '/^SUB_PUBLIC_DOMAIN=/d' .env
-echo "SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN" >> .env
-
-DB_USER=$(grep -E '^POSTGRES_USER=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
-[ -z "${DB_USER}" ] && DB_USER=postgres
-DB_PASS=$(grep -E '^POSTGRES_PASSWORD=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
-DB_NAME=$(grep -E '^POSTGRES_DB=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
-[ -z "${DB_NAME}" ] && DB_NAME=postgres
-
-# Sanitize values in case a next KEY= was concatenated to the value (e.g., POSTGRES_DB=postgresMETRICS_PASSWORD=...)
-SANITIZE_REGEX='(FRONT\_END\_DOMAIN|SUB\_PUBLIC\_DOMAIN|POSTGRES\_USER|POSTGRES\_PASSWORD|POSTGRES\_DB|METRICS\_PASSWORD|WEBHOOK\_SECRET|DATABASE\_URL)=.*$'
-DB_USER=$(printf '%s' "$DB_USER" | sed -E "s/${SANITIZE_REGEX}//")
-DB_PASS=$(printf '%s' "$DB_PASS" | sed -E "s/${SANITIZE_REGEX}//")
-DB_NAME=$(printf '%s' "$DB_NAME" | sed -E "s/${SANITIZE_REGEX}//")
-
-# Rewrite corrected DB lines to .env to fix future runs
-sed -i '/^POSTGRES_USER=/d' .env
-sed -i '/^POSTGRES_PASSWORD=/d' .env
-sed -i '/^POSTGRES_DB=/d' .env
-echo "POSTGRES_USER=$DB_USER" >> .env
-echo "POSTGRES_PASSWORD=$DB_PASS" >> .env
-echo "POSTGRES_DB=$DB_NAME" >> .env
-grep -q '^DATABASE_URL=' .env && sed -i "/^DATABASE_URL=/d" .env || true
-echo "DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@remnawave-db:5432/${DB_NAME}?schema=public" >> .env
-chmod 640 .env
-
-# Ensure JWT secrets are set and not left as default "change_me"
-JWT_AUTH_SECRET_CUR=$(grep -E '^JWT_AUTH_SECRET=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r' || true)
-JWT_API_TOKENS_SECRET_CUR=$(grep -E '^JWT_API_TOKENS_SECRET=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r' || true)
-if [ -z "$JWT_AUTH_SECRET_CUR" ] || [ "$JWT_AUTH_SECRET_CUR" = "change_me" ]; then
-    sed -i '/^JWT_AUTH_SECRET=/d' .env
-    echo "JWT_AUTH_SECRET=$(openssl rand -hex 32)" >> .env
-fi
-if [ -z "$JWT_API_TOKENS_SECRET_CUR" ] || [ "$JWT_API_TOKENS_SECRET_CUR" = "change_me" ]; then
-    sed -i '/^JWT_API_TOKENS_SECRET=/d' .env
-    echo "JWT_API_TOKENS_SECRET=$(openssl rand -hex 32)" >> .env
-fi
-
-echo ">>> Stopping any existing RemnaWave stack..."
-$COMPOSE_CMD -p remnawave down --remove-orphans || true
-
-# Prepare Subscription Page (static) assets and config
-SUB_DIR="$INSTALL_DIR/subscription"
-mkdir -p "$SUB_DIR"
-cat > "$SUB_DIR/app-config.json" <<EOC
-{
-  "apiBaseUrl": "https://$FRONT_END_DOMAIN$SUB_PUBLIC_DOMAIN",
-  "panelUrl": "https://$FRONT_END_DOMAIN",
-  "title": "RemnaWave Subscription",
-  "brand": "RemnaWave"
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || return 1
 }
-EOC
-# Minimal static index (placeholder). Replace with official build when available.
-cat > "$SUB_DIR/index.html" <<'EOC'
-<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RemnaWave Subscription</title><style>body{font-family:system-ui,sans-serif;margin:2rem;}</style></head><body><h1>RemnaWave Subscription Page</h1><p>This is a minimal placeholder. The API base is configured in <code>app-config.json</code>.</p><p>Use your client to subscribe via the panel; public API base is exposed at <code>/api/sub</code>.</p></body></html>
-EOC
 
-# Extend compose to include subscription page service
-COMPOSE_OVERRIDE="$INSTALL_DIR/docker-compose.override.yml"
-cat > "$COMPOSE_OVERRIDE" <<'EOC'
-services:
-  remnawave-subscription:
-    image: nginx:alpine
-    container_name: remnawave-subscription
-    hostname: remnawave-subscription
-    restart: always
-    networks:
-      - remnawave-network
-    ports:
-      - "127.0.0.1:3002:80"
-    volumes:
-      - ./subscription:/usr/share/nginx/html:ro
-EOC
+ensure_dir() {
+  local d="$1"
+  if [ ! -d "$d" ]; then
+    mkdir -p "$d"
+  fi
+}
 
-echo ">>> Starting RemnaWave with Docker..."
-$COMPOSE_CMD -p remnawave up -d --remove-orphans
+inplace_sed() {
+  # Cross-distro sed -i
+  if sed --version >/dev/null 2>&1; then
+    sed -i "$@"
+  else
+    sed -i '' "$@"
+  fi
+}
 
-echo ">>> Configuring Nginx..."
-NGINX_CONF="/etc/nginx/sites-available/remnawave.conf"
-# Disable default site to avoid nginx welcome page
-rm -f /etc/nginx/sites-enabled/default || true
+print_header() {
+  echo ""
+  echo "============================================================"
+  echo "$1"
+  echo "============================================================"
+}
 
-ROOT_BLOCK=$(cat << 'EOF'
-    # Redirect root to panel path
-    location = / {
-        return 302 /panel;
-    }
-    # Panel (proxy to backend UI if served there)
-    location /panel {
+abort() {
+  echo "Error: $1" >&2
+  exit 1
+}
+
+print_header "Remnawave Automated Installer"
+
+read -rp "Enter panel domain (e.g., panel.example.com): " PANEL_DOMAIN
+PANEL_DOMAIN=${PANEL_DOMAIN// /}
+
+[[ -z "$PANEL_DOMAIN" ]] && abort "Domain cannot be empty."
+[[ "$PANEL_DOMAIN" =~ ^https?:// ]] && abort "Do not include http/https in the domain."
+
+BASE_DIR=/opt/remnawave
+NGINX_DIR=$BASE_DIR/nginx
+SUB_DIR=$BASE_DIR/subscription
+ENV_FILE=$BASE_DIR/.env
+
+print_header "Installing prerequisites (curl, ca-certificates)"
+if require_cmd apt-get; then
+  sudo apt-get update -y
+  sudo apt-get install -y curl ca-certificates
+elif require_cmd dnf; then
+  sudo dnf install -y curl ca-certificates
+elif require_cmd yum; then
+  sudo yum install -y curl ca-certificates
+elif require_cmd pacman; then
+  sudo pacman -Sy --noconfirm curl ca-certificates
+fi
+
+print_header "Installing Docker"
+if ! require_cmd docker; then
+  curl -fsSL https://get.docker.com | sh
+  # Ensure docker is running
+  if require_cmd systemctl; then
+    sudo systemctl enable --now docker || true
+  fi
+else
+  echo "Docker already installed"
+fi
+
+print_header "Installing docker compose plugin (if needed)"
+if ! docker compose version >/dev/null 2>&1; then
+  if require_cmd apt-get; then
+    sudo apt-get install -y docker-compose-plugin || true
+  fi
+fi
+docker compose version >/dev/null 2>&1 || abort "Docker Compose plugin not available."
+
+print_header "Installing acme.sh dependencies (cron, socat)"
+if require_cmd apt-get; then
+  sudo apt-get install -y cron socat
+elif require_cmd dnf; then
+  sudo dnf install -y cronie socat
+elif require_cmd yum; then
+  sudo yum install -y cronie socat
+elif require_cmd pacman; then
+  sudo pacman -Sy --noconfirm cronie socat
+fi
+
+print_header "Preparing directories"
+ensure_dir "$BASE_DIR"
+ensure_dir "$NGINX_DIR"
+ensure_dir "$SUB_DIR"
+
+print_header "Downloading panel compose and env"
+if [ ! -f "$BASE_DIR/docker-compose.yml" ]; then
+  curl -fsSL -o "$BASE_DIR/docker-compose.yml" \
+    https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/docker-compose-prod.yml
+else
+  echo "docker-compose.yml already exists, keeping it"
+fi
+
+if [ ! -f "$ENV_FILE" ]; then
+  curl -fsSL -o "$ENV_FILE" \
+    https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample
+else
+  echo ".env already exists, keeping it"
+fi
+
+print_header "Generating secrets and configuring .env"
+require_cmd openssl || abort "openssl is required"
+
+# Secrets
+inplace_sed "s/^JWT_AUTH_SECRET=.*/JWT_AUTH_SECRET=$(openssl rand -hex 64)/" "$ENV_FILE"
+inplace_sed "s/^JWT_API_TOKENS_SECRET=.*/JWT_API_TOKENS_SECRET=$(openssl rand -hex 64)/" "$ENV_FILE"
+inplace_sed "s/^METRICS_PASS=.*/METRICS_PASS=$(openssl rand -hex 64)/" "$ENV_FILE"
+inplace_sed "s/^WEBHOOK_SECRET_HEADER=.*/WEBHOOK_SECRET_HEADER=$(openssl rand -hex 64)/" "$ENV_FILE"
+
+# Postgres password and DATABASE_URL alignment
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+inplace_sed "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$POSTGRES_PASSWORD/" "$ENV_FILE"
+inplace_sed "s|^DATABASE_URL=\"postgresql://postgres:[^@]*@|DATABASE_URL=\"postgresql://postgres:$POSTGRES_PASSWORD@|" "$ENV_FILE"
+
+# Domains
+if grep -q '^FRONT_END_DOMAIN=' "$ENV_FILE"; then
+  inplace_sed "s|^FRONT_END_DOMAIN=.*|FRONT_END_DOMAIN=$PANEL_DOMAIN|" "$ENV_FILE"
+else
+  echo "FRONT_END_DOMAIN=$PANEL_DOMAIN" >> "$ENV_FILE"
+fi
+
+# For single-domain setup, expose subscription API under /api/sub on the same domain
+SUB_PUBLIC_DOMAIN_VALUE="$PANEL_DOMAIN/api/sub"
+if grep -q '^SUB_PUBLIC_DOMAIN=' "$ENV_FILE"; then
+  inplace_sed "s|^SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN_VALUE|" "$ENV_FILE"
+else
+  echo "SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN_VALUE" >> "$ENV_FILE"
+fi
+
+print_header "Creating external docker network if missing"
+if ! docker network inspect remnawave-network >/dev/null 2>&1; then
+  docker network create remnawave-network >/dev/null
+fi
+
+print_header "Starting Remnawave Panel"
+(cd "$BASE_DIR" && docker compose up -d)
+
+print_header "Installing acme.sh and issuing SSL cert for $PANEL_DOMAIN"
+if [ ! -d "$HOME/.acme.sh" ]; then
+  curl https://get.acme.sh | sh -s email=admin@$PANEL_DOMAIN
+  if [ -f "$HOME/.bashrc" ]; then
+    # shellcheck source=/dev/null
+    source "$HOME/.bashrc" || true
+  fi
+fi
+
+acme.sh --version >/dev/null 2>&1 || export PATH="$HOME/.acme.sh:$PATH"
+acme.sh --version >/dev/null 2>&1 || abort "acme.sh not found in PATH"
+
+# Ensure target files exist directory-wise
+ensure_dir "$NGINX_DIR"
+acme.sh --issue --standalone -d "$PANEL_DOMAIN" \
+  --key-file "$NGINX_DIR/privkey.key" \
+  --fullchain-file "$NGINX_DIR/fullchain.pem" \
+  --alpn --tlsport 8443
+
+print_header "Writing Nginx configuration"
+cat > "$NGINX_DIR/nginx.conf" <<EOF
+upstream remnawave {
+    server remnawave:3000;
+}
+
+upstream remnawave_subscription {
+    server remnawave-subscription:3010;
+}
+
+server {
+    server_name $PANEL_DOMAIN;
+
+    listen 443 ssl reuseport;
+    listen [::]:443 ssl reuseport;
+    http2 on;
+
+    # Panel
+    location / {
         proxy_http_version 1.1;
+        proxy_pass http://remnawave;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 60s;
-        proxy_pass http://127.0.0.1:3000;
     }
-    # Subscription static site
+
+    # Subscription page under /sub
     location /sub/ {
         proxy_http_version 1.1;
+        proxy_pass http://remnawave_subscription/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 60s;
-        proxy_pass http://127.0.0.1:3002/;
     }
-EOF
-)
 
-# Write site config; expand FRONT_END_DOMAIN, but escape Nginx variables
-cat > "$NGINX_CONF" <<EOL
-server {
-    listen 80;
-    listen [::]:80;
-    server_name $FRONT_END_DOMAIN;
+    # SSL Configuration (Mozilla Intermediate Guidelines)
+    ssl_protocols          TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305;
 
-    client_max_body_size 16m;
-${ROOT_BLOCK}
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:MozSSL:10m;
+    ssl_session_tickets    off;
+    ssl_certificate "/etc/nginx/ssl/fullchain.pem";
+    ssl_certificate_key "/etc/nginx/ssl/privkey.key";
+    ssl_trusted_certificate "/etc/nginx/ssl/fullchain.pem";
 
-    location /api/sub {
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 60s;
-        proxy_pass http://127.0.0.1:3000;
-    }
+    ssl_stapling           on;
+    ssl_stapling_verify    on;
+    resolver               1.1.1.1 1.0.0.1 8.8.8.8 8.8.4.4 208.67.222.222 208.67.220.220 valid=60s;
+    resolver_timeout       2s;
+
+    # Gzip Compression
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_buffers 16 8k;
+    gzip_http_version 1.1;
+    gzip_min_length 256;
+    gzip_types
+        application/atom+xml
+        application/geo+json
+        application/javascript
+        application/x-javascript
+        application/json
+        application/ld+json
+        application/manifest+json
+        application/rdf+xml
+        application/rss+xml
+        application/xhtml+xml
+        application/xml
+        font/eot
+        font/otf
+        font/ttf
+        image/svg+xml
+        text/css
+        text/javascript
+        text/plain
+        text/xml;
 }
-EOL
 
-ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/remnawave.conf
-nginx -t
-systemctl restart nginx
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
 
-echo ">>> Obtaining SSL certificate with Certbot..."
-certbot --nginx --redirect -d "$FRONT_END_DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL" || true
+    ssl_reject_handshake on;
+}
+EOF
 
-echo -e "\n=== Installation complete! ==="
-echo "Panel should be available at: https://$FRONT_END_DOMAIN"
-echo "Database password: ${POSTGRES_PASSWORD:-$(grep '^POSTGRES_PASSWORD=' .env | cut -d'=' -f2)}"
-echo "Metrics password: ${METRICS_PASSWORD:-$(grep '^METRICS_PASSWORD=' .env | cut -d'=' -f2)}"
-echo "Webhook secret header: ${WEBHOOK_SECRET:-$(grep '^WEBHOOK_SECRET=' .env | cut -d'=' -f2)}"
-echo "(These values are saved in $INSTALL_DIR/.env)"
+print_header "Writing Nginx docker-compose.yml"
+cat > "$NGINX_DIR/docker-compose.yml" <<EOF
+services:
+  remnawave-nginx:
+    image: nginx:1.28
+    container_name: remnawave-nginx
+    hostname: remnawave-nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
+      - ./privkey.key:/etc/nginx/ssl/privkey.key:ro
+    restart: always
+    ports:
+      - '0.0.0.0:443:443'
+    networks:
+      - remnawave-network
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    driver: bridge
+    external: true
+EOF
+
+print_header "Writing Subscription Page docker-compose.yml"
+cat > "$SUB_DIR/docker-compose.yml" <<EOF
+services:
+  remnawave-subscription:
+    image: remnawave/subscription-page:latest
+    container_name: remnawave-subscription
+    environment:
+      - REMNAWAVE_PANEL_URL=https://$PANEL_DOMAIN
+      - APP_PORT=3010
+    restart: always
+    ports:
+      - '127.0.0.1:3010:3010'
+    networks:
+      - remnawave-network
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    driver: bridge
+    external: true
+EOF
+
+print_header "Starting Subscription Page"
+(cd "$SUB_DIR" && docker compose up -d)
+
+print_header "Starting Nginx"
+(cd "$NGINX_DIR" && docker compose up -d)
+
+echo ""
+echo "All set!"
+echo "Panel:        https://$PANEL_DOMAIN/"
+echo "Subscription: https://$PANEL_DOMAIN/sub/"
+echo "Note: Ensure DNS for $PANEL_DOMAIN points to this server and port 8443 was free during certificate issuance."
 
 
