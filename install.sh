@@ -30,16 +30,16 @@ print_banner() {
 
   clear_screen
   echo ""
-  echo -e "${SEP}╔════════════════════════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${SEP}║                                                                            ║${RESET}"
+  echo -e "${SEP}╔══════════════════════════════════════════════════════════╗${RESET}"
+  echo -e "${SEP}║                                                          ║${RESET}"
   echo -e "${SEP}║   ${MAGENTA}${BOLD}██╗  ██╗███████╗██╗  ██╗  ${CYAN}  █████╗ ██████╗ ██████╗     ${SEP}║${RESET}"
   echo -e "${SEP}║   ${MAGENTA}${BOLD}██║  ██║██╔════╝╚██╗██╔╝  ${CYAN} ██╔══██╗██╔══██╗██╔══██╗    ${SEP}║${RESET}"
   echo -e "${SEP}║   ${MAGENTA}${BOLD}███████║█████╗   ╚███╔╝   ${CYAN} ███████║██████╔╝██████╔╝    ${SEP}║${RESET}"
   echo -e "${SEP}║   ${MAGENTA}${BOLD}██╔══██║██╔══╝   ██╔██╗   ${CYAN} ██╔══██║██╔═══╝ ██╔═══╝     ${SEP}║${RESET}"
   echo -e "${SEP}║   ${MAGENTA}${BOLD}██║  ██║███████╗██╔╝ ██╗  ${CYAN} ██║  ██║██║     ██║         ${SEP}║${RESET}"
   echo -e "${SEP}║   ${MAGENTA}${BOLD}╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝  ${CYAN} ╚═╝  ╚═╝╚═╝     ╚═╝         ${SEP}║${RESET}"
-  echo -e "${SEP}║                                                                            ║${RESET}"
-  echo -e "${SEP}╚════════════════════════════════════════════════════════════════════════════╝${RESET}"
+  echo -e "${SEP}║                                                          ║${RESET}"
+  echo -e "${SEP}╚══════════════════════════════════════════════════════════╝${RESET}"
   echo -e "${GRAY} Website: https://hexapp.dev${RESET}"
   echo -e "${GRAY} Installer: Remnawave Panel + Subscription + Nginx (SSL)${RESET}\n"
 }
