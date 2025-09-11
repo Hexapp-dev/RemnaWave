@@ -171,6 +171,9 @@ if require_cmd systemctl; then
   sudo systemctl enable --now cron 2>/dev/null || sudo systemctl enable --now crond 2>/dev/null || true
 fi
 
+# Use Let's Encrypt as CA (instead of ZeroSSL/EAB)
+acme.sh --set-default-ca --server letsencrypt
+
 # Ensure target files exist directory-wise
 ensure_dir "$NGINX_DIR"
 acme.sh --issue --standalone -d "$PANEL_DOMAIN" \
