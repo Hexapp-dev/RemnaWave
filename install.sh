@@ -417,6 +417,9 @@ services:
     environment:
       - REMNAWAVE_PANEL_URL=https://$PANEL_DOMAIN
       - APP_PORT=3010
+      - META_TITLE="Subscription page"
+      - META_DESCRIPTION="Subscription page for $PANEL_DOMAIN"
+      - CUSTOM_SUB_PREFIX=sub
     restart: always
     ports:
       - '127.0.0.1:3010:3010'
