@@ -19,9 +19,13 @@ if [[ "$confirm" != "y" ]]; then
   exit 1
 fi
 
-# ---- 2. نصب پیش‌نیازها ----
+# ---- 2. جلوگیری از توقف needrestart ----
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=l  # حالت "none of the above"
+
+# ---- 3. نصب پیش‌نیازها ----
 echo ">>> Installing dependencies..."
-apt update
+apt update -y
 apt install -y curl gnupg2 ca-certificates lsb-release software-properties-common
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -44,16 +48,16 @@ if ! command -v certbot >/dev/null 2>&1; then
   apt install -y certbot python3-certbot-nginx
 fi
 
-# ---- 3. آماده‌سازی فایل‌ها ----
+# ---- 4. آماده‌سازی فایل‌ها ----
 INSTALL_DIR="/opt/remnawave"
 mkdir -p $INSTALL_DIR
 cd $INSTALL_DIR
 
-echo ">>> Downloading docker-compose.yml and .env.example..."
-curl -sSL https://raw.githubusercontent.com/remnawave/remnawave/main/docker-compose.yml -o docker-compose.yml
-curl -sSL https://raw.githubusercontent.com/remnawave/remnawave/main/.env.example -o .env
+echo ">>> Downloading docker-compose-prod.yml and .env.sample..."
+curl -fSL https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/docker-compose-prod.yml -o docker-compose.yml
+curl -fSL https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample -o .env
 
-# ---- 4. تولید secrets ----
+# ---- 5. تولید secrets ----
 echo ">>> Generating secrets..."
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
 JWT_AUTH_SECRET=$(openssl rand -hex 32)
@@ -61,7 +65,7 @@ JWT_API_TOKENS_SECRET=$(openssl rand -hex 32)
 METRICS_PASS=$(openssl rand -hex 16)
 WEBHOOK_SECRET_HEADER=$(openssl rand -hex 16)
 
-# ---- 5. ساخت فایل .env ----
+# ---- 6. ساخت فایل .env ----
 echo ">>> Configuring .env..."
 sed -i "s|^FRONT_END_DOMAIN=.*|FRONT_END_DOMAIN=$FRONT_END_DOMAIN|" .env
 sed -i "s|^SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN|" .env
@@ -71,11 +75,11 @@ sed -i "s|^JWT_API_TOKENS_SECRET=.*|JWT_API_TOKENS_SECRET=$JWT_API_TOKENS_SECRET
 sed -i "s|^METRICS_PASS=.*|METRICS_PASS=$METRICS_PASS|" .env
 sed -i "s|^WEBHOOK_SECRET_HEADER=.*|WEBHOOK_SECRET_HEADER=$WEBHOOK_SECRET_HEADER|" .env
 
-# ---- 6. ران کردن Remnawave ----
+# ---- 7. ران کردن Remnawave ----
 echo ">>> Starting Remnawave with Docker..."
 docker compose up -d
 
-# ---- 7. کانفیگ Nginx ----
+# ---- 8. کانفیگ Nginx ----
 NGINX_CONF="/etc/nginx/sites-available/remnawave.conf"
 echo ">>> Configuring Nginx..."
 cat > $NGINX_CONF <<EOF
@@ -98,11 +102,11 @@ ln -sf $NGINX_CONF /etc/nginx/sites-enabled/remnawave.conf
 nginx -t
 systemctl reload nginx
 
-# ---- 8. فعال‌سازی SSL ----
+# ---- 9. فعال‌سازی SSL ----
 echo ">>> Obtaining SSL certificate..."
-certbot --nginx -d $FRONT_END_DOMAIN --non-interactive --agree-tos -m admin@$FRONT_END_DOMAIN --redirect
+certbot --nginx -d $FRONT_END_DOMAIN --non-interactive --agree-tos -m admin@$FRONT_END_DOMAIN --redirect || echo "⚠️ SSL setup failed, please check DNS and try certbot manually."
 
-# ---- 9. پایان ----
+# ---- 10. پایان ----
 echo ""
 echo "=== Installation complete! ==="
 echo "Panel should be available at: https://$FRONT_END_DOMAIN"
@@ -112,3 +116,5 @@ echo "Metrics password: $METRICS_PASS"
 echo "Webhook secret header: $WEBHOOK_SECRET_HEADER"
 echo ""
 echo "(These values are saved in $INSTALL_DIR/.env)"
+echo ""
+echo "⚠️ If a new kernel was installed, please reboot the server to apply changes."
