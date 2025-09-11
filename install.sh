@@ -44,6 +44,7 @@ print_banner() {
   echo -e "${GRAY} Installer: Remnawave Panel + Subscription + Nginx (SSL)${RESET}\n"
 }
 
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || return 1
 }
