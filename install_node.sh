@@ -69,12 +69,9 @@ BASE_DIR=/opt/remnanode
 ENV_FILE=$BASE_DIR/.env
 COMPOSE_FILE=$BASE_DIR/docker-compose.yml
 
-# Inputs
-read -rp "Enter Node APP_PORT (default 2222): " APP_PORT
-APP_PORT=${APP_PORT// /}
-if [ -z "${APP_PORT:-}" ]; then APP_PORT=2222; fi
-
-echo "Paste SSL_CERT line as copied from Panel (starts with SSL_CERT=):"
+# Inputs (SSL_CERT first, exactly as Panel provides)
+echo "Paste SSL_CERT line exactly as provided by Panel (including quotes), e.g.:"
+echo "SSL_CERT=\"...base64-json...\""
 read -r SSL_CERT_INPUT
 
 if [ -z "${SSL_CERT_INPUT:-}" ]; then
@@ -82,10 +79,15 @@ if [ -z "${SSL_CERT_INPUT:-}" ]; then
   exit 1
 fi
 
-# Normalize SSL_CERT line
-if ! echo "$SSL_CERT_INPUT" | grep -q '^SSL_CERT='; then
-  SSL_CERT_INPUT="SSL_CERT=$SSL_CERT_INPUT"
-fi
+# Strict validation: must start with SSL_CERT=" and end with "
+case "$SSL_CERT_INPUT" in
+  SSL_CERT=\"*\") ;;
+  *) echo "Error: SSL_CERT must be in the form: SSL_CERT=\"...\"" >&2; exit 1 ;;
+esac
+
+read -rp "Enter Node APP_PORT (default 2222): " APP_PORT
+APP_PORT=${APP_PORT// /}
+if [ -z "${APP_PORT:-}" ]; then APP_PORT=2222; fi
 
 print_header "Installing prerequisites (curl, ca-certificates)"
 if require_cmd apt-get; then
