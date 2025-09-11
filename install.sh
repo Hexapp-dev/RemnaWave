@@ -9,6 +9,60 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || return 1
 }
 
+wait_for_apt() {
+  # Wait for dpkg/apt locks to be free (handles unattended-upgrades)
+  if ! require_cmd apt-get; then
+    return 0
+  fi
+  local locks=(/var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock)
+  local max_attempts=120
+  local attempt=1
+  while :; do
+    local busy=false
+    for lk in "${locks[@]}"; do
+      if sudo fuser "$lk" >/dev/null 2>&1; then
+        busy=true
+        break
+      fi
+    done
+    # Also wait if unattended-upgrades is running
+    if pgrep -fa 'unattended-upgr' >/dev/null 2>&1; then
+      busy=true
+    fi
+    if [ "$busy" = false ]; then
+      sudo dpkg --configure -a >/dev/null 2>&1 || true
+      break
+    fi
+    if [ $attempt -ge $max_attempts ]; then
+      echo "apt/dpkg still busy after $((max_attempts*5))s. Please retry later." >&2
+      exit 1
+    fi
+    echo "apt/dpkg is busy (unattended-upgrades). Waiting... ($attempt/$max_attempts)"
+    attempt=$((attempt+1))
+    sleep 5
+  done
+}
+
+apt_install() {
+  # Usage: apt_install pkg1 pkg2 ... (waits for locks and retries)
+  if ! require_cmd apt-get; then
+    return 0
+  fi
+  wait_for_apt
+  local max_attempts=5
+  local attempt=1
+  until sudo apt-get update -y && sudo apt-get install -y "$@"; do
+    if [ $attempt -ge $max_attempts ]; then
+      echo "Failed to install packages via apt-get after $max_attempts attempts: $*" >&2
+      exit 1
+    fi
+    echo "apt-get failed. Waiting for locks and retrying... ($attempt/$max_attempts)"
+    attempt=$((attempt+1))
+    sleep 5
+    wait_for_apt
+  done
+}
+
 ensure_dir() {
   local d="$1"
   if [ ! -d "$d" ]; then
@@ -52,8 +106,7 @@ ENV_FILE=$BASE_DIR/.env
 
 print_header "Installing prerequisites (curl, ca-certificates)"
 if require_cmd apt-get; then
-  sudo apt-get update -y
-  sudo apt-get install -y curl ca-certificates
+  apt_install curl ca-certificates
 elif require_cmd dnf; then
   sudo dnf install -y curl ca-certificates
 elif require_cmd yum; then
@@ -76,14 +129,14 @@ fi
 print_header "Installing docker compose plugin (if needed)"
 if ! docker compose version >/dev/null 2>&1; then
   if require_cmd apt-get; then
-    sudo apt-get install -y docker-compose-plugin || true
+    apt_install docker-compose-plugin || true
   fi
 fi
 docker compose version >/dev/null 2>&1 || abort "Docker Compose plugin not available."
 
 print_header "Installing acme.sh dependencies (cron, socat)"
 if require_cmd apt-get; then
-  sudo apt-get install -y cron socat
+  apt_install cron socat
 elif require_cmd dnf; then
   sudo dnf install -y cronie socat
 elif require_cmd yum; then
