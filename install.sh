@@ -108,12 +108,11 @@ else
     grep -q '^POSTGRES_DB=' .env || echo "POSTGRES_DB=postgres" >> .env
 fi
 
-set +u
-. ./.env
-set -u
-DB_USER="${POSTGRES_USER:-postgres}"
-DB_PASS="${POSTGRES_PASSWORD}"
-DB_NAME="${POSTGRES_DB:-postgres}"
+DB_USER=$(grep -E '^POSTGRES_USER=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
+[ -z "${DB_USER}" ] && DB_USER=postgres
+DB_PASS=$(grep -E '^POSTGRES_PASSWORD=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
+DB_NAME=$(grep -E '^POSTGRES_DB=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
+[ -z "${DB_NAME}" ] && DB_NAME=postgres
 grep -q '^DATABASE_URL=' .env && sed -i "/^DATABASE_URL=/d" .env || true
 echo "DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@remnawave-db:5432/${DB_NAME}?schema=public" >> .env
 chmod 640 .env
