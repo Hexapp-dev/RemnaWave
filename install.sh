@@ -112,6 +112,14 @@ else
   echo ".env already exists, keeping it"
 fi
 
+print_header "Writing panel docker-compose.override.yml to use external network"
+cat > "$BASE_DIR/docker-compose.override.yml" <<EOF
+networks:
+  remnawave-network:
+    name: remnawave-network
+    external: true
+EOF
+
 print_header "Generating secrets and configuring .env"
 require_cmd openssl || abort "openssl is required"
 
