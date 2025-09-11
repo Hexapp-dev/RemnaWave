@@ -191,8 +191,8 @@ else
   echo "FRONT_END_DOMAIN=$PANEL_DOMAIN" >> "$ENV_FILE"
 fi
 
-# For single-domain setup, expose subscription API under /api/sub on the same domain
-SUB_PUBLIC_DOMAIN_VALUE="$PANEL_DOMAIN/api/sub"
+# For single-domain setup, expose subscription under /sub on the same domain
+SUB_PUBLIC_DOMAIN_VALUE="$PANEL_DOMAIN/sub"
 if grep -q '^SUB_PUBLIC_DOMAIN=' "$ENV_FILE"; then
   inplace_sed "s|^SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN_VALUE|" "$ENV_FILE"
 else
@@ -318,8 +318,8 @@ server {
         proxy_set_header X-Forwarded-Port $server_port;
     }
 
-    # Subscription page under /api/sub
-    location /api/sub/ {
+    # Subscription page under /sub
+    location /sub/ {
         proxy_http_version 1.1;
         proxy_pass http://remnawave_subscription/;
         proxy_set_header Host $host;
