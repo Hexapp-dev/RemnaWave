@@ -160,14 +160,16 @@ print_header "Starting Remnawave Panel"
 print_header "Installing acme.sh and issuing SSL cert for $PANEL_DOMAIN"
 if [ ! -d "$HOME/.acme.sh" ]; then
   curl https://get.acme.sh | sh -s email=admin@$PANEL_DOMAIN
-  if [ -f "$HOME/.bashrc" ]; then
-    # shellcheck source=/dev/null
-    source "$HOME/.bashrc" || true
-  fi
 fi
 
-acme.sh --version >/dev/null 2>&1 || export PATH="$HOME/.acme.sh:$PATH"
+# Ensure acme.sh in PATH without sourcing shell rc files (avoid PS1 issues under set -u)
+export PATH="$HOME/.acme.sh:$PATH"
 acme.sh --version >/dev/null 2>&1 || abort "acme.sh not found in PATH"
+
+# Ensure cron service is running for auto-renew
+if require_cmd systemctl; then
+  sudo systemctl enable --now cron 2>/dev/null || sudo systemctl enable --now crond 2>/dev/null || true
+fi
 
 # Ensure target files exist directory-wise
 ensure_dir "$NGINX_DIR"
