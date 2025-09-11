@@ -119,6 +119,20 @@ DB_USER=$(grep -E '^POSTGRES_USER=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r
 DB_PASS=$(grep -E '^POSTGRES_PASSWORD=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
 DB_NAME=$(grep -E '^POSTGRES_DB=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r')
 [ -z "${DB_NAME}" ] && DB_NAME=postgres
+
+# Sanitize values in case a next KEY= was concatenated to the value (e.g., POSTGRES_DB=postgresMETRICS_PASSWORD=...)
+SANITIZE_REGEX='(FRONT\_END\_DOMAIN|SUB\_PUBLIC\_DOMAIN|POSTGRES\_USER|POSTGRES\_PASSWORD|POSTGRES\_DB|METRICS\_PASSWORD|WEBHOOK\_SECRET|DATABASE\_URL)=.*$'
+DB_USER=$(printf '%s' "$DB_USER" | sed -E "s/${SANITIZE_REGEX}//")
+DB_PASS=$(printf '%s' "$DB_PASS" | sed -E "s/${SANITIZE_REGEX}//")
+DB_NAME=$(printf '%s' "$DB_NAME" | sed -E "s/${SANITIZE_REGEX}//")
+
+# Rewrite corrected DB lines to .env to fix future runs
+sed -i '/^POSTGRES_USER=/d' .env
+sed -i '/^POSTGRES_PASSWORD=/d' .env
+sed -i '/^POSTGRES_DB=/d' .env
+echo "POSTGRES_USER=$DB_USER" >> .env
+echo "POSTGRES_PASSWORD=$DB_PASS" >> .env
+echo "POSTGRES_DB=$DB_NAME" >> .env
 grep -q '^DATABASE_URL=' .env && sed -i "/^DATABASE_URL=/d" .env || true
 echo "DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@remnawave-db:5432/${DB_NAME}?schema=public" >> .env
 chmod 640 .env
