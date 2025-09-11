@@ -52,9 +52,8 @@ ENV_FILE=$BASE_DIR/.env
 
 print_header "Installing prerequisites (curl, ca-certificates)"
 if require_cmd apt-get; then
-  sudo dpkg --configure -a >/dev/null 2>&1 || true
   sudo apt-get update -y
-  sudo apt-get install -y curl ca-certificates || { sudo dpkg --configure -a || true; sudo apt-get install -y curl ca-certificates; }
+  sudo apt-get install -y curl ca-certificates
 elif require_cmd dnf; then
   sudo dnf install -y curl ca-certificates
 elif require_cmd yum; then
@@ -77,16 +76,14 @@ fi
 print_header "Installing docker compose plugin (if needed)"
 if ! docker compose version >/dev/null 2>&1; then
   if require_cmd apt-get; then
-    sudo dpkg --configure -a >/dev/null 2>&1 || true
-    sudo apt-get install -y docker-compose-plugin || { sudo dpkg --configure -a || true; sudo apt-get install -y docker-compose-plugin; }
+    sudo apt-get install -y docker-compose-plugin || true
   fi
 fi
 docker compose version >/dev/null 2>&1 || abort "Docker Compose plugin not available."
 
 print_header "Installing acme.sh dependencies (cron, socat)"
 if require_cmd apt-get; then
-  sudo dpkg --configure -a >/dev/null 2>&1 || true
-  sudo apt-get install -y cron socat || { sudo dpkg --configure -a || true; sudo apt-get install -y cron socat; }
+  sudo apt-get install -y cron socat
 elif require_cmd dnf; then
   sudo dnf install -y cronie socat
 elif require_cmd yum; then
