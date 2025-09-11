@@ -1,120 +1,120 @@
 #!/bin/bash
+
 set -e
 
-echo "=== Remnawave Panel Installer ==="
+echo "=== RemnaWave Panel Installer ==="
 
-# ---- 1. گرفتن ورودی از کاربر ----
+# --- User Inputs ---
 read -p "Enter FRONT_END_DOMAIN (e.g. panel.example.com): " FRONT_END_DOMAIN
-DEFAULT_SUB_PUBLIC_DOMAIN="$FRONT_END_DOMAIN/api/sub"
-read -p "Enter SUB_PUBLIC_DOMAIN (default: $DEFAULT_SUB_PUBLIC_DOMAIN): " SUB_PUBLIC_DOMAIN
-SUB_PUBLIC_DOMAIN=${SUB_PUBLIC_DOMAIN:-$DEFAULT_SUB_PUBLIC_DOMAIN}
+read -p "Enter SUB_PUBLIC_DOMAIN (default: ${FRONT_END_DOMAIN}/api/sub): " SUB_PUBLIC_DOMAIN
+SUB_PUBLIC_DOMAIN=${SUB_PUBLIC_DOMAIN:-${FRONT_END_DOMAIN}/api/sub}
 
-echo ""
-echo "You entered:"
+echo -e "\nYou entered:"
 echo "  FRONT_END_DOMAIN = $FRONT_END_DOMAIN"
 echo "  SUB_PUBLIC_DOMAIN = $SUB_PUBLIC_DOMAIN"
-read -p "Proceed with installation? (y/n): " confirm
-if [[ "$confirm" != "y" ]]; then
-  echo "Installation aborted."
-  exit 1
+
+read -p "Proceed with installation? (y/n): " CONFIRM
+if [[ "$CONFIRM" != "y" ]]; then
+    echo "Installation aborted."
+    exit 1
 fi
 
-# ---- 2. جلوگیری از توقف needrestart ----
-export DEBIAN_FRONTEND=noninteractive
-export NEEDRESTART_MODE=l  # حالت "none of the above"
+# --- Check Ports ---
+echo ">>> Checking ports 80 and 443..."
+for PORT in 80 443; do
+    if ss -tulpn | grep -q ":$PORT "; then
+        echo "Port $PORT is already in use. Please free it before running the installer."
+        exit 1
+    fi
+done
 
-# ---- 3. نصب پیش‌نیازها ----
+# --- Install Dependencies ---
 echo ">>> Installing dependencies..."
-apt update -y
-apt install -y curl gnupg2 ca-certificates lsb-release software-properties-common
+apt update
+apt install -y lsb-release ca-certificates curl software-properties-common gnupg2 ufw
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo ">>> Installing Docker..."
-  curl -fsSL https://get.docker.com | sh
+# --- Docker & Docker Compose ---
+echo ">>> Installing Docker..."
+if ! command -v docker &> /dev/null; then
+    curl -fsSL https://get.docker.com | bash
 fi
 
-if ! command -v docker compose >/dev/null 2>&1; then
-  echo ">>> Installing docker-compose plugin..."
-  apt install -y docker-compose-plugin
+echo ">>> Installing Docker Compose..."
+DOCKER_COMPOSE_VERSION="2.24.1"
+if ! docker compose version &> /dev/null; then
+    curl -L "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" \
+        -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
 fi
 
-if ! command -v nginx >/dev/null 2>&1; then
-  echo ">>> Installing Nginx..."
-  apt install -y nginx
-fi
+# --- Setup Directories ---
+echo ">>> Setting up RemnaWave directories..."
+mkdir -p /opt/remnawave
+cd /opt/remnawave
 
-if ! command -v certbot >/dev/null 2>&1; then
-  echo ">>> Installing Certbot..."
-  apt install -y certbot python3-certbot-nginx
-fi
+# --- Download docker-compose.yml and .env.sample ---
+echo ">>> Downloading docker-compose.yml and .env.sample..."
+curl -sSL https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/docker-compose-prod.yml -o docker-compose.yml
+curl -sSL https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample -o .env.sample
 
-# ---- 4. آماده‌سازی فایل‌ها ----
-INSTALL_DIR="/opt/remnawave"
-mkdir -p $INSTALL_DIR
-cd $INSTALL_DIR
-
-echo ">>> Downloading docker-compose-prod.yml and .env.sample..."
-curl -fSL https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/docker-compose-prod.yml -o docker-compose.yml
-curl -fSL https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample -o .env
-
-# ---- 5. تولید secrets ----
+# --- Generate Secrets ---
 echo ">>> Generating secrets..."
-POSTGRES_PASSWORD=$(openssl rand -hex 16)
-JWT_AUTH_SECRET=$(openssl rand -hex 32)
-JWT_API_TOKENS_SECRET=$(openssl rand -hex 32)
-METRICS_PASS=$(openssl rand -hex 16)
-WEBHOOK_SECRET_HEADER=$(openssl rand -hex 16)
+DB_PASSWORD=$(openssl rand -hex 16)
+METRICS_PASSWORD=$(openssl rand -hex 16)
+WEBHOOK_SECRET=$(openssl rand -hex 16)
 
-# ---- 6. ساخت فایل .env ----
+# --- Configure .env ---
 echo ">>> Configuring .env..."
-sed -i "s|^FRONT_END_DOMAIN=.*|FRONT_END_DOMAIN=$FRONT_END_DOMAIN|" .env
-sed -i "s|^SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN|" .env
-sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$POSTGRES_PASSWORD|" .env
-sed -i "s|^JWT_AUTH_SECRET=.*|JWT_AUTH_SECRET=$JWT_AUTH_SECRET|" .env
-sed -i "s|^JWT_API_TOKENS_SECRET=.*|JWT_API_TOKENS_SECRET=$JWT_API_TOKENS_SECRET|" .env
-sed -i "s|^METRICS_PASS=.*|METRICS_PASS=$METRICS_PASS|" .env
-sed -i "s|^WEBHOOK_SECRET_HEADER=.*|WEBHOOK_SECRET_HEADER=$WEBHOOK_SECRET_HEADER|" .env
+cp .env.sample .env
+sed -i "s|FRONT_END_DOMAIN=.*|FRONT_END_DOMAIN=$FRONT_END_DOMAIN|" .env
+sed -i "s|SUB_PUBLIC_DOMAIN=.*|SUB_PUBLIC_DOMAIN=$SUB_PUBLIC_DOMAIN|" .env
+sed -i "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$DB_PASSWORD|" .env
+sed -i "s|METRICS_PASSWORD=.*|METRICS_PASSWORD=$METRICS_PASSWORD|" .env
+sed -i "s|WEBHOOK_SECRET=.*|WEBHOOK_SECRET=$WEBHOOK_SECRET|" .env
 
-# ---- 7. ران کردن Remnawave ----
-echo ">>> Starting Remnawave with Docker..."
+# --- Start Docker ---
+echo ">>> Starting RemnaWave with Docker..."
+docker compose pull
 docker compose up -d
 
-# ---- 8. کانفیگ Nginx ----
-NGINX_CONF="/etc/nginx/sites-available/remnawave.conf"
-echo ">>> Configuring Nginx..."
-cat > $NGINX_CONF <<EOF
+# --- Install Nginx ---
+echo ">>> Installing Nginx..."
+apt install -y nginx
+cat > /etc/nginx/sites-available/remnawave <<EOL
 server {
     listen 80;
     server_name $FRONT_END_DOMAIN;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
         proxy_set_header Host \$host;
-        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
-EOF
+EOL
 
-ln -sf $NGINX_CONF /etc/nginx/sites-enabled/remnawave.conf
-nginx -t
-systemctl reload nginx
+ln -sf /etc/nginx/sites-available/remnawave /etc/nginx/sites-enabled/remnawave
+nginx -t && systemctl restart nginx
 
-# ---- 9. فعال‌سازی SSL ----
-echo ">>> Obtaining SSL certificate..."
-certbot --nginx -d $FRONT_END_DOMAIN --non-interactive --agree-tos -m admin@$FRONT_END_DOMAIN --redirect || echo "⚠️ SSL setup failed, please check DNS and try certbot manually."
+# --- Obtain SSL ---
+echo ">>> Attempting to obtain SSL certificate..."
+if ! apt install -y certbot python3-certbot-nginx; then
+    echo "Certbot installation failed. Continuing with HTTP..."
+else
+    if ! certbot --nginx -d "$FRONT_END_DOMAIN" --non-interactive --agree-tos -m admin@$FRONT_END_DOMAIN; then
+        echo "⚠️ SSL setup failed, continuing with HTTP. You can fix SSL manually later."
+    fi
+fi
 
-# ---- 10. پایان ----
+# --- Completion ---
+echo -e "\n=== Installation complete! ==="
+echo "Panel should be available at: http://$FRONT_END_DOMAIN (or https if SSL succeeded)"
 echo ""
-echo "=== Installation complete! ==="
-echo "Panel should be available at: https://$FRONT_END_DOMAIN"
+echo "Database password: $DB_PASSWORD"
+echo "Metrics password: $METRICS_PASSWORD"
+echo "Webhook secret header: $WEBHOOK_SECRET"
 echo ""
-echo "Database password: $POSTGRES_PASSWORD"
-echo "Metrics password: $METRICS_PASS"
-echo "Webhook secret header: $WEBHOOK_SECRET_HEADER"
-echo ""
-echo "(These values are saved in $INSTALL_DIR/.env)"
-echo ""
+echo "(These values are saved in /opt/remnawave/.env)"
 echo "⚠️ If a new kernel was installed, please reboot the server to apply changes."
