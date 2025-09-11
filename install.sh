@@ -14,19 +14,19 @@ wait_for_apt() {
   if ! require_cmd apt-get; then
     return 0
   fi
-  local locks=(/var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock)
+  local locks=(/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock)
   local max_attempts=120
   local attempt=1
   while :; do
     local busy=false
     for lk in "${locks[@]}"; do
-      if sudo fuser "$lk" >/dev/null 2>&1; then
+      if sudo fuser "$lk" >/dev/null 2>&1 || sudo lsof "$lk" >/dev/null 2>&1; then
         busy=true
         break
       fi
     done
     # Also wait if unattended-upgrades is running
-    if pgrep -fa 'unattended-upgr' >/dev/null 2>&1; then
+    if pgrep -fa 'unattended-upgr|apt.systemd.daily|apt-get|dpkg' >/dev/null 2>&1; then
       busy=true
     fi
     if [ "$busy" = false ]; then
@@ -43,17 +43,38 @@ wait_for_apt() {
   done
 }
 
+apt_disable_automatic() {
+  # Temporarily stop automatic apt units to avoid lock contention
+  if ! require_cmd systemctl; then
+    return 0
+  fi
+  sudo systemctl stop unattended-upgrades.service 2>/dev/null || true
+  sudo systemctl stop apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+  sudo systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+}
+
+apt_enable_automatic() {
+  if ! require_cmd systemctl; then
+    return 0
+  fi
+  sudo systemctl start apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+  sudo systemctl start unattended-upgrades.service 2>/dev/null || true
+}
+
 apt_install() {
   # Usage: apt_install pkg1 pkg2 ... (waits for locks and retries)
   if ! require_cmd apt-get; then
     return 0
   fi
+  apt_disable_automatic
   wait_for_apt
-  local max_attempts=5
+  local max_attempts=8
   local attempt=1
-  until sudo apt-get update -y && sudo apt-get install -y "$@"; do
+  export DEBIAN_FRONTEND=noninteractive
+  until sudo apt-get update -y && sudo apt-get install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$@"; do
     if [ $attempt -ge $max_attempts ]; then
       echo "Failed to install packages via apt-get after $max_attempts attempts: $*" >&2
+      apt_enable_automatic
       exit 1
     fi
     echo "apt-get failed. Waiting for locks and retrying... ($attempt/$max_attempts)"
@@ -61,6 +82,7 @@ apt_install() {
     sleep 5
     wait_for_apt
   done
+  apt_enable_automatic
 }
 
 ensure_dir() {
