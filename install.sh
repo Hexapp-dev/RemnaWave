@@ -171,23 +171,20 @@ if require_cmd systemctl; then
   sudo systemctl enable --now cron 2>/dev/null || sudo systemctl enable --now crond 2>/dev/null || true
 fi
 
-# Use Let's Encrypt as CA (instead of ZeroSSL/EAB)
-acme.sh --set-default-ca --server letsencrypt
-
 # Ensure target files exist directory-wise
 ensure_dir "$NGINX_DIR"
-# If a cert already exists but was issued by another CA, force reissue with Let's Encrypt
-FORCE_FLAG=""
-if [ -d "$HOME/.acme.sh/$PANEL_DOMAIN" ]; then
-  if ! grep -Riq "letsencrypt.org" "$HOME/.acme.sh/$PANEL_DOMAIN" 2>/dev/null; then
-    FORCE_FLAG="--force"
-  fi
-fi
 
-acme.sh --issue --standalone -d "$PANEL_DOMAIN" $FORCE_FLAG \
-  --key-file "$NGINX_DIR/privkey.key" \
-  --fullchain-file "$NGINX_DIR/fullchain.pem" \
-  --alpn --tlsport 8443
+# If cert directory exists, skip issuance (avoid 'Skipping. Next renewal time...' noise)
+if [ -d "$HOME/.acme.sh/$PANEL_DOMAIN" ]; then
+  echo "Existing cert for $PANEL_DOMAIN found. Skipping issuance and installing to Nginx paths."
+else
+  # Use Let's Encrypt as CA and issue a new cert
+  acme.sh --set-default-ca --server letsencrypt
+  acme.sh --issue --standalone -d "$PANEL_DOMAIN" \
+    --key-file "$NGINX_DIR/privkey.key" \
+    --fullchain-file "$NGINX_DIR/fullchain.pem" \
+    --alpn --tlsport 8443
+fi
 
 # Ensure cert and key are installed to target paths even if issuance was skipped
 acme.sh --install-cert -d "$PANEL_DOMAIN" \
