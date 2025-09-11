@@ -137,18 +137,6 @@ grep -q '^DATABASE_URL=' .env && sed -i "/^DATABASE_URL=/d" .env || true
 echo "DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@remnawave-db:5432/${DB_NAME}?schema=public" >> .env
 chmod 640 .env
 
-# Ensure JWT secrets are set and not left as default "change_me"
-JWT_AUTH_SECRET_CUR=$(grep -E '^JWT_AUTH_SECRET=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r' || true)
-JWT_API_TOKENS_SECRET_CUR=$(grep -E '^JWT_API_TOKENS_SECRET=' .env | head -n1 | cut -d'=' -f2- | tr -d '\r' || true)
-if [ -z "$JWT_AUTH_SECRET_CUR" ] || [ "$JWT_AUTH_SECRET_CUR" = "change_me" ]; then
-    sed -i '/^JWT_AUTH_SECRET=/d' .env
-    echo "JWT_AUTH_SECRET=$(openssl rand -hex 32)" >> .env
-fi
-if [ -z "$JWT_API_TOKENS_SECRET_CUR" ] || [ "$JWT_API_TOKENS_SECRET_CUR" = "change_me" ]; then
-    sed -i '/^JWT_API_TOKENS_SECRET=/d' .env
-    echo "JWT_API_TOKENS_SECRET=$(openssl rand -hex 32)" >> .env
-fi
-
 echo ">>> Stopping any existing RemnaWave stack..."
 $COMPOSE_CMD -p remnawave down --remove-orphans || true
 echo ">>> Starting RemnaWave with Docker..."
