@@ -230,6 +230,25 @@ set -e
 
 print_header "SSL step finished, proceeding with Nginx and Subscription"
 
+# Validate cert files; if invalid/missing, try copying from acme.sh store or create a temporary self-signed cert
+if [ ! -s "$NGINX_DIR/fullchain.pem" ] || ! grep -q "BEGIN CERTIFICATE" "$NGINX_DIR/fullchain.pem" 2>/dev/null; then
+  echo "fullchain.pem is missing/invalid. Attempting recovery..."
+  SRC_CHAIN="$HOME/.acme.sh/$PANEL_DOMAIN/fullchain.cer"
+  SRC_KEY="$HOME/.acme.sh/$PANEL_DOMAIN/$PANEL_DOMAIN.key"
+  if [ -s "$SRC_CHAIN" ] && grep -q "BEGIN CERTIFICATE" "$SRC_CHAIN" 2>/dev/null && [ -s "$SRC_KEY" ]; then
+    cp -f "$SRC_CHAIN" "$NGINX_DIR/fullchain.pem"
+    cp -f "$SRC_KEY" "$NGINX_DIR/privkey.key"
+    echo "Copied certs from acme.sh store."
+  else
+    echo "Acme certs not available. Generating temporary self-signed certificate."
+    require_cmd openssl || abort "openssl is required to generate a temporary certificate"
+    openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
+      -keyout "$NGINX_DIR/privkey.key" \
+      -out "$NGINX_DIR/fullchain.pem" \
+      -subj "/CN=$PANEL_DOMAIN" >/dev/null 2>&1
+  fi
+fi
+
 print_header "Writing Nginx configuration"
 cat > "$NGINX_DIR/nginx.conf" <<'EOF'
 upstream remnawave {
