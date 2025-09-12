@@ -413,8 +413,8 @@ server {
 server {
     server_name REPLACE_WITH_SUB_DOMAIN;
 
-    listen 443 ssl reuseport;
-    listen [::]:443 ssl reuseport;
+    listen 443 ssl;
+    listen [::]:443 ssl;
     http2 on;
 
     location / {
@@ -498,6 +498,8 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
       - ./privkey.key:/etc/nginx/ssl/privkey.key:ro
+      - ./subdomain_fullchain.pem:/etc/nginx/ssl/subdomain_fullchain.pem:ro
+      - ./subdomain_privkey.key:/etc/nginx/ssl/subdomain_privkey.key:ro
     restart: always
     ports:
       - '0.0.0.0:443:443'
@@ -522,7 +524,6 @@ services:
       - APP_PORT=3010
       - META_TITLE="Subscription page"
       - META_DESCRIPTION="Subscription page for $PANEL_DOMAIN"
-      - CUSTOM_SUB_PREFIX=sub
     restart: always
     ports:
       - '127.0.0.1:3010:3010'
@@ -547,7 +548,5 @@ print_header "Starting Nginx"
 echo ""
 echo "All set! Installation completed successfully."
 echo "Panel:        https://$PANEL_DOMAIN/"
-echo "Subscription: https://$PANEL_DOMAIN/sub/"
-echo "Note: Ensure DNS for $PANEL_DOMAIN points to this server and port 8443 was free during certificate issuance."
-
-
+echo "Subscription: https://$SUB_DOMAIN/"
+echo "Note: Ensure DNS for $PANEL_DOMAIN and $SUB_DOMAIN point to this server and port 8443 was free during certificate issuance."
