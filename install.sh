@@ -319,8 +319,8 @@ fi
 # Validate subscription certs as well
 if [ ! -s "$NGINX_DIR/subdomain_fullchain.pem" ] || ! grep -q "BEGIN CERTIFICATE" "$NGINX_DIR/subdomain_fullchain.pem" 2>/dev/null; then
   echo "subscription fullchain.pem is missing/invalid. Attempting recovery..."
-  SUB_SRC_CHAIN="$HOME/.acme.sh/$SUB_DOMAIN/fullchain.cer"
-  SUB_SRC_KEY="$HOME/.acme.sh/$SUB_DOMAIN/$SUB_DOMAIN.key"
+  SUB_SRC_CHAIN="$HOME/.acme.sh/${SUB_DOMAIN}_ecc/fullchain.cer"
+  SUB_SRC_KEY="$HOME/.acme.sh/${SUB_DOMAIN}_ecc/$SUB_DOMAIN.key"
   if [ -s "$SUB_SRC_CHAIN" ] && grep -q "BEGIN CERTIFICATE" "$SUB_SRC_CHAIN" 2>/dev/null && [ -s "$SUB_SRC_KEY" ]; then
     cp -f "$SUB_SRC_CHAIN" "$NGINX_DIR/subdomain_fullchain.pem"
     cp -f "$SUB_SRC_KEY" "$NGINX_DIR/subdomain_privkey.key"
