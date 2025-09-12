@@ -62,7 +62,7 @@ print_banner() {
 
   clear_screen
   echo ""
-  echo -e "${SEP}╔═════════════════════════════════════════════════════════╗${RESET}"
+  echo -e "${SEP}╔══════════════════════════════════════════════════════════╗${RESET}"
   echo -e "${SEP}║                                                          ║${RESET}"
   echo -e "${SEP}║   ${MAGENTA}${BOLD}██╗  ██╗███████╗██╗  ██╗  ${CYAN}  █████╗ ██████╗ ██████╗     ${SEP}║${RESET}"
   echo -e "${SEP}║   ${MAGENTA}${BOLD}██║  ██║██╔════╝╚██╗██╔╝  ${CYAN} ██╔══██╗██╔══██╗██╔══██╗    ${SEP}║${RESET}"
@@ -189,6 +189,19 @@ else
   echo "Preserving existing JWT/metrics/webhook secrets in .env"
 fi
 
+# Check if domains have changed and reset secrets if needed
+CURRENT_PANEL_DOMAIN=$(grep '^FRONT_END_DOMAIN=' "$ENV_FILE" | cut -d'=' -f2- 2>/dev/null || echo "")
+CURRENT_SUB_DOMAIN=$(grep '^SUB_PUBLIC_DOMAIN=' "$ENV_FILE" | cut -d'=' -f2- 2>/dev/null || echo "")
+
+if [ "$CURRENT_PANEL_DOMAIN" != "$PANEL_DOMAIN" ] || [ "$CURRENT_SUB_DOMAIN" != "$SUB_DOMAIN" ]; then
+  echo "Domain configuration changed. Regenerating secrets to ensure compatibility..."
+  inplace_sed "s/^JWT_AUTH_SECRET=.*/JWT_AUTH_SECRET=$(openssl rand -hex 64)/" "$ENV_FILE"
+  inplace_sed "s/^JWT_API_TOKENS_SECRET=.*/JWT_API_TOKENS_SECRET=$(openssl rand -hex 64)/" "$ENV_FILE"
+  inplace_sed "s/^METRICS_PASS=.*/METRICS_PASS=$(openssl rand -hex 64)/" "$ENV_FILE"
+  inplace_sed "s/^WEBHOOK_SECRET_HEADER=.*/WEBHOOK_SECRET_HEADER=$(openssl rand -hex 64)/" "$ENV_FILE"
+  echo "Secrets regenerated for new domain configuration."
+fi
+
 # Postgres password and DATABASE_URL alignment
 if [ "$ENV_NEW" -eq 1 ]; then
   POSTGRES_PASSWORD=$(openssl rand -hex 24)
@@ -196,6 +209,15 @@ if [ "$ENV_NEW" -eq 1 ]; then
   inplace_sed "s|^DATABASE_URL=\"postgresql://postgres:[^@]*@|DATABASE_URL=\"postgresql://postgres:$POSTGRES_PASSWORD@|" "$ENV_FILE"
 else
   echo "Preserving existing POSTGRES_PASSWORD and DATABASE_URL in .env"
+fi
+
+# Reset Postgres password if domains changed
+if [ "$CURRENT_PANEL_DOMAIN" != "$PANEL_DOMAIN" ] || [ "$CURRENT_SUB_DOMAIN" != "$SUB_DOMAIN" ]; then
+  echo "Regenerating Postgres password for new domain configuration..."
+  POSTGRES_PASSWORD=$(openssl rand -hex 24)
+  inplace_sed "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$POSTGRES_PASSWORD/" "$ENV_FILE"
+  inplace_sed "s|^DATABASE_URL=\"postgresql://postgres:[^@]*@|DATABASE_URL=\"postgresql://postgres:$POSTGRES_PASSWORD@|" "$ENV_FILE"
+  echo "Postgres password regenerated for new domain configuration."
 fi
 
 # Domains
@@ -549,4 +571,9 @@ echo ""
 echo "All set! Installation completed successfully."
 echo "Panel:        https://$PANEL_DOMAIN/"
 echo "Subscription: https://$SUB_DOMAIN/"
+echo ""
+echo "Default login credentials:"
+echo "Username: admin"
+echo "Password: admin"
+echo ""
 echo "Note: Ensure DNS for $PANEL_DOMAIN and $SUB_DOMAIN point to this server and port 8443 was free during certificate issuance."
