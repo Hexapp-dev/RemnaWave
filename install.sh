@@ -361,6 +361,10 @@ install_acme_sh
 ensure_dir "$NGINX_DIR/ssl/panel"
 ensure_dir "$NGINX_DIR/ssl/subscription"
 
+# Stop nginx container if running to free port 80 for certificate issuance
+echo "Stopping nginx container to free port 80 for certificate issuance..."
+(cd "$NGINX_DIR" && docker compose down >/dev/null 2>&1 || true)
+
 # Issue certificates for both domains
 set +e
 issue_certificate "$PANEL_DOMAIN" "$NGINX_DIR/ssl/panel"
@@ -368,6 +372,29 @@ issue_certificate "$SUB_DOMAIN" "$NGINX_DIR/ssl/subscription"
 set -e
 
 print_header "SSL certificates processed, starting Nginx"
+
+# Function to manage containers
+manage_containers() {
+  local action="$1"
+  local service="$2"
+  
+  case "$action" in
+    "stop")
+      echo "Stopping $service container..."
+      (cd "$NGINX_DIR" && docker compose down >/dev/null 2>&1 || true)
+      ;;
+    "start")
+      echo "Starting $service container..."
+      (cd "$NGINX_DIR" && docker compose up -d --force-recreate)
+      ;;
+    "restart")
+      echo "Restarting $service container..."
+      (cd "$NGINX_DIR" && docker compose down >/dev/null 2>&1 || true)
+      sleep 2
+      (cd "$NGINX_DIR" && docker compose up -d --force-recreate)
+      ;;
+  esac
+}
 
 print_header "Writing optimized Nginx configuration"
 write_nginx_config() {
@@ -723,18 +750,57 @@ start_services() {
   echo "Waiting for Nginx to be ready..."
   sleep 5
   
-  echo "✓ All services started successfully"
+  # Verify nginx is running properly
+  if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "remnawave-nginx.*Up"; then
+    echo "✓ All services started successfully"
+  else
+    echo "⚠ Nginx container may have issues. Check logs with: docker logs remnawave-nginx"
+  fi
 }
 
 start_services
+
+# Function to check service status
+check_service_status() {
+  echo ""
+  echo "============================================================"
+  echo "Service Status Check"
+  echo "============================================================"
+  
+  # Check nginx
+  if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "remnawave-nginx.*Up"; then
+    echo "✓ Nginx: Running"
+  else
+    echo "✗ Nginx: Not running or has issues"
+    echo "  Check logs: docker logs remnawave-nginx"
+  fi
+  
+  # Check subscription
+  if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "remnawave-subscription.*Up"; then
+    echo "✓ Subscription: Running"
+  else
+    echo "✗ Subscription: Not running or has issues"
+    echo "  Check logs: docker logs remnawave-subscription"
+  fi
+  
+  # Check backend
+  if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "remnawave.*Up"; then
+    echo "✓ Backend: Running"
+  else
+    echo "✗ Backend: Not running or has issues"
+    echo "  Check logs: docker logs remnawave"
+  fi
+  
+  echo ""
+  echo "Container Status:"
+  docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep remnawave
+}
+
+check_service_status
 
 echo ""
 echo "All set! Installation completed successfully."
 echo "Panel:        https://$PANEL_DOMAIN/"
 echo "Subscription: https://$SUB_DOMAIN/"
-echo ""
-echo "Default login credentials:"
-echo "Username: admin"
-echo "Password: admin"
 echo ""
 echo "Note: Ensure DNS for $PANEL_DOMAIN and $SUB_DOMAIN point to this server and port 8443 was free during certificate issuance."
