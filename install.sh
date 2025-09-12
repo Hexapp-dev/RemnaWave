@@ -62,7 +62,7 @@ print_banner() {
 
   clear_screen
   echo ""
-  echo -e "${SEP}╔═════════════════════════════════════════════════════════╗${RESET}"
+  echo -e "${SEP}╔══════════════════════════════════════════════════════════╗${RESET}"
   echo -e "${SEP}║                                                          ║${RESET}"
   echo -e "${SEP}║   ${MAGENTA}${BOLD}██╗  ██╗███████╗██╗  ██╗  ${CYAN}  █████╗ ██████╗ ██████╗     ${SEP}║${RESET}"
   echo -e "${SEP}║   ${MAGENTA}${BOLD}██║  ██║██╔════╝╚██╗██╔╝  ${CYAN} ██╔══██╗██╔══██╗██╔══██╗    ${SEP}║${RESET}"
@@ -375,20 +375,46 @@ write_nginx_config() {
 # Remnawave Nginx Configuration
 # Optimized for security and performance
 
-# Rate limiting
-limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
-limit_req_zone \$binary_remote_addr zone=login:10m rate=5r/m;
-
-# Upstream definitions
-upstream remnawave_backend {
-    server remnawave:3000 max_fails=3 fail_timeout=30s;
-    keepalive 32;
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
 }
 
-upstream remnawave_subscription {
-    server remnawave-subscription:3010 max_fails=3 fail_timeout=30s;
-    keepalive 32;
-}
+http {
+    # Rate limiting
+    limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone \$binary_remote_addr zone=login:10m rate=5r/m;
+    
+    # Basic settings
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    server_tokens off;
+    
+    # MIME types
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    
+    # Logging
+    log_format main '\$remote_addr - \$remote_user [\$time_local] "\$request" '
+                    '\$status \$body_bytes_sent "\$http_referer" '
+                    '"\$http_user_agent" "\$http_x_forwarded_for"';
+    access_log /var/log/nginx/access.log main;
+    error_log /var/log/nginx/error.log warn;
+
+    # Upstream definitions
+    upstream remnawave_backend {
+        server remnawave:3000 max_fails=3 fail_timeout=30s;
+        keepalive 32;
+    }
+
+    upstream remnawave_subscription {
+        server remnawave-subscription:3010 max_fails=3 fail_timeout=30s;
+        keepalive 32;
+    }
 
 # HTTP to HTTPS redirect
 server {
@@ -564,12 +590,13 @@ server {
         text/xml;
 }
 
-# Default server block (reject all other requests)
-server {
-    listen 443 ssl default_server;
-    listen [::]:443 ssl default_server;
-    server_name _;
-    ssl_reject_handshake on;
+    # Default server block (reject all other requests)
+    server {
+        listen 443 ssl default_server;
+        listen [::]:443 ssl default_server;
+        server_name _;
+        ssl_reject_handshake on;
+    }
 }
 EOF
 }
