@@ -229,12 +229,24 @@ configure_tunnel() {
     # Set proxy environment variables
     set_proxy
     
+    # Create a script to source the proxy variables in the current shell
+    cat > /tmp/hex_proxy_setup.sh << 'EOF'
+export http_proxy="socks5h://127.0.0.1:1080"
+export https_proxy="socks5h://127.0.0.1:1080"
+export HTTP_PROXY="socks5h://127.0.0.1:1080"
+export HTTPS_PROXY="socks5h://127.0.0.1:1080"
+echo "✓ Proxy environment variables set in current shell"
+EOF
+    
     echo ""
     echo "============================================================"
     echo "Setup Complete"
     echo "============================================================"
     echo "✓ SSH tunnel is running in background"
     echo "✓ Proxy is configured and ready to use"
+    echo ""
+    echo "To apply proxy settings to your current shell, run:"
+    echo "source /tmp/hex_proxy_setup.sh"
     echo ""
     echo "To test the proxy, try: curl --proxy socks5h://127.0.0.1:1080 http://httpbin.org/ip"
     echo ""
@@ -262,6 +274,9 @@ while true; do
       if check_tunnel_status; then
         echo "SSH tunnel is still running in background (PID: $SSH_PID)"
         echo "To stop it later, run: kill $SSH_PID"
+        echo ""
+        echo "To apply proxy settings to your current shell, run:"
+        echo "source /tmp/hex_proxy_setup.sh"
       fi
       exit 0
       ;;
