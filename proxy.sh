@@ -160,38 +160,121 @@ else
   echo "sshpass already installed"
 fi
 
-print_header "Preparing SSH tunnel"
-# Check if port is available
-check_port
+# Main menu loop
 
-# Establish SSH tunnel
-if establish_tunnel; then
-  # Set proxy environment variables
-  set_proxy
-  
+# Function to show menu
+show_menu() {
   echo ""
   echo "============================================================"
-  echo "Setup Complete"
+  echo "HEX Proxy Menu"
   echo "============================================================"
-  echo "✓ SSH tunnel is running in background"
-  echo "✓ Proxy is configured and ready to use"
-  echo ""
-  echo "To stop the tunnel, press Ctrl+C or run: kill $SSH_PID"
-  echo "To test the proxy, try: curl --proxy socks5h://127.0.0.1:1080 http://httpbin.org/ip"
-  echo ""
-  
-  # Keep script running to maintain the tunnel
-  echo "Press Ctrl+C to stop the tunnel and exit..."
-  while true; do
-    sleep 1
-    # Check if SSH process is still running
-    if ! kill -0 $SSH_PID 2>/dev/null; then
-      echo "SSH tunnel connection lost. Exiting..."
-      break
+  echo "1. Configure SSH tunnel"
+  echo "2. Remove SSH tunnel"
+  echo "3. Exit"
+  echo "============================================================"
+}
+
+# Function to check if tunnel is running
+check_tunnel_status() {
+  if lsof -Pi :1080 -sTCP:LISTEN -t >/dev/null 2>&1; then
+    SSH_PID=$(lsof -Pi :1080 -sTCP:LISTEN -t)
+    return 0
+  else
+    SSH_PID=""
+    return 1
+  fi
+}
+
+# Function to remove tunnel
+remove_tunnel() {
+  if check_tunnel_status; then
+    echo "Removing SSH tunnel (PID: $SSH_PID)..."
+    kill $SSH_PID 2>/dev/null
+    sleep 2
+    if ! check_tunnel_status; then
+      echo "✓ SSH tunnel removed successfully"
+    else
+      echo "✗ Failed to remove SSH tunnel"
     fi
-  done
-else
-  abort "Failed to establish SSH tunnel. Please check your credentials and network connection."
-fi
+  else
+    echo "No SSH tunnel is currently running"
+  fi
+}
 
-cleanup
+# Function to configure tunnel
+configure_tunnel() {
+  if check_tunnel_status; then
+    echo "SSH tunnel is already running (PID: $SSH_PID)"
+    echo "Do you want to remove it and create a new one? (y/n)"
+    read -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+      remove_tunnel
+    else
+      return 0
+    fi
+  fi
+  
+  # Get user input for server details
+  read -rp "Enter server IP address: " SERVER_IP
+  read -rp "Enter username (default: root): " USERNAME
+  USERNAME=${USERNAME:-root}
+  read -rsp "Enter password: " PASSWORD
+  echo
+
+  [[ -z "$SERVER_IP" ]] && abort "Server IP cannot be empty."
+  [[ -z "$USERNAME" ]] && abort "Username cannot be empty."
+  [[ -z "$PASSWORD" ]] && abort "Password cannot be empty."
+
+  # Check if port is available
+  check_port
+
+  # Establish SSH tunnel
+  if establish_tunnel; then
+    # Set proxy environment variables
+    set_proxy
+    
+    echo ""
+    echo "============================================================"
+    echo "Setup Complete"
+    echo "============================================================"
+    echo "✓ SSH tunnel is running in background"
+    echo "✓ Proxy is configured and ready to use"
+    echo ""
+    echo "To test the proxy, try: curl --proxy socks5h://127.0.0.1:1080 http://httpbin.org/ip"
+    echo ""
+  else
+    abort "Failed to establish SSH tunnel. Please check your credentials and network connection."
+  fi
+}
+
+# Main menu loop
+while true; do
+  show_menu
+  read -rp "Select an option (1-3): " choice
+  
+  case $choice in
+    1)
+      print_header "Configuring SSH tunnel"
+      configure_tunnel
+      ;;
+    2)
+      print_header "Removing SSH tunnel"
+      remove_tunnel
+      ;;
+    3)
+      echo "Exiting..."
+      if check_tunnel_status; then
+        echo "SSH tunnel is still running in background (PID: $SSH_PID)"
+        echo "To stop it later, run: kill $SSH_PID"
+      fi
+      exit 0
+      ;;
+    *)
+      echo "Invalid option. Please select 1, 2, or 3."
+      ;;
+  esac
+  
+  echo ""
+  echo "Press Enter to continue..."
+  read -r
+done
