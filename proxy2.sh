@@ -62,18 +62,6 @@ print_banner() {
 }
 
 print_banner
-print_header "HEX Proxy Setup"
-
-# Get user input for server details
-read -rp "Enter server IP address: " SERVER_IP
-read -rp "Enter username (default: root): " USERNAME
-USERNAME=${USERNAME:-root}
-read -rsp "Enter password: " PASSWORD
-echo
-
-[[ -z "$SERVER_IP" ]] && abort "Server IP cannot be empty."
-[[ -z "$USERNAME" ]] && abort "Username cannot be empty."
-[[ -z "$PASSWORD" ]] && abort "Password cannot be empty."
 
 # Function to check if port 1080 is already in use
 check_port() {
