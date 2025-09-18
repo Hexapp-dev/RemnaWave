@@ -99,16 +99,24 @@ establish_tunnel() {
 # Function to set proxy environment variables
 set_proxy() {
   echo "Setting proxy environment variables..."
+  
+  # Set both lowercase and uppercase versions for compatibility
   export http_proxy="socks5h://127.0.0.1:1080"
   export https_proxy="socks5h://127.0.0.1:1080"
+  export HTTP_PROXY="socks5h://127.0.0.1:1080"
+  export HTTPS_PROXY="socks5h://127.0.0.1:1080"
   
   echo "✓ Proxy settings applied:"
-  echo "  HTTP_PROXY: $http_proxy"
-  echo "  HTTPS_PROXY: $https_proxy"
+  echo "  http_proxy: $http_proxy"
+  echo "  https_proxy: $https_proxy"
+  echo "  HTTP_PROXY: $HTTP_PROXY"
+  echo "  HTTPS_PROXY: $HTTPS_PROXY"
   echo
   echo "To make these settings permanent, add the following to your ~/.bashrc or ~/.profile:"
   echo "export http_proxy=\"socks5h://127.0.0.1:1080\""
   echo "export https_proxy=\"socks5h://127.0.0.1:1080\""
+  echo "export HTTP_PROXY=\"socks5h://127.0.0.1:1080\""
+  echo "export HTTPS_PROXY=\"socks5h://127.0.0.1:1080\""
 }
 
 # Function to cleanup on exit
@@ -125,27 +133,27 @@ cleanup() {
 # Set up signal handlers
 trap cleanup SIGINT SIGTERM
 
-print_header "Installing prerequisites (sshpass)"
+# Install sshpass silently if not present
 if ! require_cmd sshpass; then
+  echo "Installing sshpass..."
   if require_cmd apt-get; then
-    sudo apt-get update -y
-    sudo apt-get install -y sshpass
+    sudo apt-get update -y >/dev/null 2>&1
+    sudo apt-get install -y sshpass >/dev/null 2>&1
   elif require_cmd dnf; then
-    sudo dnf install -y sshpass
+    sudo dnf install -y sshpass >/dev/null 2>&1
   elif require_cmd yum; then
-    sudo yum install -y sshpass
+    sudo yum install -y sshpass >/dev/null 2>&1
   elif require_cmd pacman; then
-    sudo pacman -Sy --noconfirm sshpass
+    sudo pacman -Sy --noconfirm sshpass >/dev/null 2>&1
   elif require_cmd brew; then
-    brew install sshpass
+    brew install sshpass >/dev/null 2>&1
   else
     abort "sshpass is not installed and no package manager found. Please install it manually:
     Ubuntu/Debian: sudo apt-get install sshpass
     CentOS/RHEL: sudo yum install sshpass
     macOS: brew install sshpass"
   fi
-else
-  echo "sshpass already installed"
+  echo "✓ sshpass installed successfully"
 fi
 
 # Main menu loop
