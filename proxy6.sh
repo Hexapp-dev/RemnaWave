@@ -5,6 +5,15 @@ set -euo pipefail
 # HEX Proxy Setup Script
 # Establishes SSH tunnel with SOCKS proxy
 
+# Function to apply proxy settings to current shell
+apply_proxy_to_shell() {
+  export http_proxy="socks5h://127.0.0.1:1080"
+  export https_proxy="socks5h://127.0.0.1:1080"
+  export HTTP_PROXY="socks5h://127.0.0.1:1080"
+  export HTTPS_PROXY="socks5h://127.0.0.1:1080"
+  echo "✓ Proxy environment variables applied to current shell"
+}
+
 clear_screen() {
   if command -v tput >/dev/null 2>&1; then
     tput reset || printf '\033c'
@@ -246,7 +255,11 @@ EOF
     echo "✓ Proxy is configured and ready to use"
     echo ""
     echo "To apply proxy settings to your current shell, run:"
-    echo "source /tmp/hex_proxy_setup.sh"
+    echo "source <(echo 'export http_proxy=\"socks5h://127.0.0.1:1080\"; export https_proxy=\"socks5h://127.0.0.1:1080\"; export HTTP_PROXY=\"socks5h://127.0.0.1:1080\"; export HTTPS_PROXY=\"socks5h://127.0.0.1:1080\"')"
+    echo ""
+    echo "Or simply run:"
+    echo "export http_proxy=\"socks5h://127.0.0.1:1080\""
+    echo "export https_proxy=\"socks5h://127.0.0.1:1080\""
     echo ""
     echo "To test the proxy, try: curl --proxy socks5h://127.0.0.1:1080 http://httpbin.org/ip"
     echo ""
@@ -276,7 +289,8 @@ while true; do
         echo "To stop it later, run: kill $SSH_PID"
         echo ""
         echo "To apply proxy settings to your current shell, run:"
-        echo "source /tmp/hex_proxy_setup.sh"
+        echo "export http_proxy=\"socks5h://127.0.0.1:1080\""
+        echo "export https_proxy=\"socks5h://127.0.0.1:1080\""
       fi
       exit 0
       ;;
