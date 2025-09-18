@@ -44,7 +44,7 @@ print_banner() {
     MAGENTA=''; CYAN=''; GRAY=''; SEP=''; BOLD=''; RESET=''
   fi
 
-  clear_screen
+  clear_screen 
   echo ""
   echo -e "${SEP}╔════════════════════════════════════════════════════════════════════════╗${RESET}"
   echo -e "${SEP}║                                                                        ║${RESET}"
