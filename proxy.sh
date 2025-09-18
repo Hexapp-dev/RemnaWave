@@ -137,13 +137,27 @@ cleanup() {
 # Set up signal handlers
 trap cleanup SIGINT SIGTERM
 
-print_header "Checking prerequisites"
-# Check if sshpass is installed
+print_header "Installing prerequisites (sshpass)"
 if ! require_cmd sshpass; then
-  abort "sshpass is not installed. Please install it using:
-  Ubuntu/Debian: sudo apt-get install sshpass
-  CentOS/RHEL: sudo yum install sshpass
-  macOS: brew install sshpass"
+  if require_cmd apt-get; then
+    sudo apt-get update -y
+    sudo apt-get install -y sshpass
+  elif require_cmd dnf; then
+    sudo dnf install -y sshpass
+  elif require_cmd yum; then
+    sudo yum install -y sshpass
+  elif require_cmd pacman; then
+    sudo pacman -Sy --noconfirm sshpass
+  elif require_cmd brew; then
+    brew install sshpass
+  else
+    abort "sshpass is not installed and no package manager found. Please install it manually:
+    Ubuntu/Debian: sudo apt-get install sshpass
+    CentOS/RHEL: sudo yum install sshpass
+    macOS: brew install sshpass"
+  fi
+else
+  echo "sshpass already installed"
 fi
 
 print_header "Preparing SSH tunnel"
