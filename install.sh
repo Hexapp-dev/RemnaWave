@@ -148,13 +148,13 @@ if [ -f "./app-config.json" ]; then
   cp -f ./app-config.json "$SUB_DIR/app-config.json"
 elif [ ! -f "$SUB_DIR/app-config.json" ]; then
   curl -fsSL -o "$SUB_DIR/app-config.json" \
-    https://raw.githubusercontent.com/Hexapp-dev/RemnaWave/refs/heads/main/app-config.json || true
+    https://github.com/Hexapp-dev/RemnaWave/raw/main/app-config.json || true
 fi
 
 print_header "Downloading panel compose and env"
 if [ ! -f "$BASE_DIR/docker-compose.yml" ]; then
   curl -fsSL -o "$BASE_DIR/docker-compose.yml" \
-    https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/docker-compose-prod.yml
+    https://github.com/remnawave/backend/raw/main/docker-compose-prod.yml
 else
   echo "docker-compose.yml already exists, keeping it"
 fi
@@ -162,7 +162,7 @@ fi
 ENV_NEW=0
 if [ ! -f "$ENV_FILE" ]; then
   curl -fsSL -o "$ENV_FILE" \
-    https://raw.githubusercontent.com/remnawave/backend/refs/heads/main/.env.sample
+    https://github.com/remnawave/backend/raw/main/.env.sample
   ENV_NEW=1
 else
   echo ".env already exists, keeping it"
